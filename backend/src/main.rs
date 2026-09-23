@@ -25,7 +25,6 @@ use crate::error::AppResult;
 pub struct AppState {
     pub db: PgPool,
     pub cfg: Arc<Config>,
-    pub http: reqwest::Client,
     pub oidc: Arc<Oidc>,
 }
 
@@ -64,9 +63,8 @@ async fn main() {
         .expect("failed to build HTTP client");
 
     let state = AppState {
-        oidc: Arc::new(Oidc::new(&cfg, http.clone())),
+        oidc: Arc::new(Oidc::new(&cfg, http)),
         cfg: Arc::new(cfg),
-        http,
         db,
     };
 

@@ -69,9 +69,12 @@ pub struct AuthUser {
 }
 
 /// Signed-in user, if any. Invalid or expired tokens are treated as anonymous.
+/// For routes that work for everyone but show more to signed-in users.
+#[allow(dead_code)] // no route uses it yet
 pub struct MaybeUser(pub Option<AuthUser>);
 
 /// Signed-in user holding the Entra `Marketplace.Admin` app role.
+#[allow(dead_code)] // no route uses it yet
 pub struct AdminUser(pub AuthUser);
 
 enum TokenSource {
@@ -165,10 +168,6 @@ mod tests {
                 ("ENTRA_TENANT_ID", "t"),
                 ("ENTRA_CLIENT_ID", "c"),
                 ("ENTRA_CLIENT_SECRET", "s"),
-                ("S3_ACCESS_KEY", "a"),
-                ("S3_SECRET_KEY", "b"),
-                ("PAYFAST_MERCHANT_ID", "10000100"),
-                ("PAYFAST_MERCHANT_KEY", "46f0cd694581a"),
             ] {
                 std::env::set_var(k, v);
             }

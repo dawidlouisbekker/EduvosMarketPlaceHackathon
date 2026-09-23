@@ -11,7 +11,6 @@ export type Me = {
   email: string;
   display_name: string;
   is_admin: boolean;
-  ventures: { id: string; slug: string; name: string; status: string; role: 'owner' | 'member' }[];
 };
 
 type Session = {

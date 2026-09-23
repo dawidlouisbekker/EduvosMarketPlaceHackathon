@@ -32,11 +32,6 @@ export default function HomeScreen() {
                 {user.email}
                 {user.is_admin ? ' · Hub admin' : ''}
               </ThemedText>
-              {user.ventures.map((v) => (
-                <ThemedText key={v.id} type="small">
-                  {v.name} ({v.role}, {v.status})
-                </ThemedText>
-              ))}
               <Pressable onPress={signOut} style={({ pressed }) => pressed && styles.pressed}>
                 <ThemedText type="linkPrimary">Sign out</ThemedText>
               </Pressable>
