@@ -1,14 +1,8 @@
-mod admin;
 mod auth;
 mod config;
 mod error;
-mod listings;
-mod media;
 mod models;
-mod orders;
-mod payments;
 mod util;
-mod ventures;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +20,6 @@ use tracing_subscriber::EnvFilter;
 use crate::auth::oidc::Oidc;
 use crate::config::Config;
 use crate::error::AppResult;
-use crate::media::Media;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -34,7 +27,6 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub http: reqwest::Client,
     pub oidc: Arc<Oidc>,
-    pub media: Arc<Media>,
 }
 
 #[tokio::main]
@@ -73,27 +65,18 @@ async fn main() {
 
     let state = AppState {
         oidc: Arc::new(Oidc::new(&cfg, http.clone())),
-        media: Arc::new(Media::new(&cfg).expect("invalid S3 configuration")),
         cfg: Arc::new(cfg),
         http,
         db,
     };
 
-    tokio::spawn(orders::expire_unpaid_orders(state.clone()));
-
     let api = Router::new()
         .route("/health", get(health))
-        .merge(auth::routes::router())
-        .merge(ventures::router())
-        .merge(listings::router())
-        .merge(media::router())
-        .merge(orders::router())
-        .merge(payments::payfast::router())
-        .merge(admin::router());
+        .merge(auth::routes::router());
 
     let app = Router::new()
         .nest("/api", api)
-        .layer(RequestBodyLimitLayer::new(media::MAX_IMAGE_BYTES + 64 * 1024))
+        .layer(RequestBodyLimitLayer::new(64 * 1024))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

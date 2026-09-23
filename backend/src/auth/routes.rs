@@ -20,7 +20,7 @@ use super::session::{create_session, removal_cookie, session_cookie};
 use super::AuthUser;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
-use crate::models::{MemberRole, SessionKind, VentureStatus};
+use crate::models::SessionKind;
 use crate::util::{pkce_challenge, random_token, safe_return_to, sha256, with_query};
 
 const LOGIN_TTL: Duration = Duration::minutes(10);
@@ -225,30 +225,11 @@ async fn logout(State(state): State<AppState>, user: AuthUser, jar: CookieJar) -
     Ok((jar.remove(removal_cookie(&state.cfg)), StatusCode::NO_CONTENT))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
-struct MyVenture {
-    id: Uuid,
-    slug: String,
-    name: String,
-    status: VentureStatus,
-    role: MemberRole,
-}
-
-async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
-    let ventures = sqlx::query_as::<_, MyVenture>(
-        "SELECT v.id, v.slug, v.name, v.status, m.role
-           FROM venture_members m JOIN ventures v ON v.id = m.venture_id
-          WHERE m.user_id = $1
-          ORDER BY v.name",
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await?;
-    Ok(Json(json!({
+async fn me(user: AuthUser) -> Json<Value> {
+    Json(json!({
         "id": user.id,
         "email": user.email,
         "display_name": user.display_name,
         "is_admin": user.is_admin,
-        "ventures": ventures,
-    })))
+    }))
 }
