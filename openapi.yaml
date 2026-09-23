@@ -1,0 +1,671 @@
+openapi: 3.0.3
+info:
+  title: EduvosMarket API
+  version: 1.0.0
+  description: |
+    Marketplace where Eduvos Incubation Hub ventures showcase and sell products and services
+    to the student community.
+
+    **Authentication.** Sign-in is Microsoft Entra ID (Eduvos tenant only), driven by the backend.
+    * Web: navigate the browser to `GET /auth/login`. The backend sets an HttpOnly session cookie.
+      Cookie-authenticated POST/PATCH/DELETE requests must carry an `Origin` header equal to the
+      site origin (browsers do this automatically for same-origin `fetch`).
+    * Native app: open `GET /auth/login?client=app&redirect_uri=…&code_challenge=…` with
+      `WebBrowser.openAuthSessionAsync`, receive `?code=` on the redirect URI, then
+      `POST /auth/app/exchange` to get a bearer token.
+
+    **Errors** are JSON: `{ "error": "<code>", "message": "<text>" }`.
+    **Money** is integer cents in ZAR. **Ids** are UUIDv7 (time ordered; used as cursors).
+servers:
+  - url: http://localhost:8080/api
+    description: Local (docker compose)
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: catalogue
+  - name: ventures
+  - name: listings
+  - name: media
+  - name: orders
+  - name: payments
+  - name: admin
+
+paths:
+  /health:
+    get:
+      tags: [auth]
+      summary: Liveness and database check
+      security: []
+      responses:
+        '200': { description: OK }
+
+  # ------------------------------------------------------------------ auth
+  /auth/login:
+    get:
+      tags: [auth]
+      summary: Start Microsoft sign-in (redirects to Entra ID)
+      description: |
+        "Sign in with Microsoft" button target. If the student already has a Microsoft session in
+        this browser they are signed in without typing anything. With `prompt=none` the attempt is
+        silent: on failure the user is sent to `return_to?sso=unavailable` instead of seeing a
+        Microsoft page. Use it once on first load to sign returning students in automatically.
+      security: []
+      parameters:
+        - { name: return_to, in: query, schema: { type: string, example: /listings }, description: Relative path to land on after sign-in (web only). }
+        - { name: prompt, in: query, schema: { type: string, enum: [none] } }
+        - { name: client, in: query, schema: { type: string, enum: [app] }, description: Native app flow. }
+        - { name: redirect_uri, in: query, schema: { type: string, example: 'eduvosmarket://auth' }, description: Required for `client=app`; must be registered in APP_REDIRECT_URIS. }
+        - { name: code_challenge, in: query, schema: { type: string }, description: 'Required for `client=app`: base64url(SHA-256(code_verifier)), 43 chars.' }
+      responses:
+        '303': { description: Redirect to Microsoft }
+        '400': { $ref: '#/components/responses/Error' }
+  /auth/callback:
+    get:
+      tags: [auth]
+      summary: Entra ID redirect URI (not called by clients)
+      description: |
+        Web: sets the session cookie and redirects to `return_to` (or `return_to?auth_error=<code>`).
+        App: redirects to `redirect_uri?code=<one-time code>` (or `?error=<code>`).
+      security: []
+      responses:
+        '303': { description: Redirect }
+  /auth/app/exchange:
+    post:
+      tags: [auth]
+      summary: Exchange the app's one-time code for a bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, code_verifier]
+              properties:
+                code: { type: string }
+                code_verifier: { type: string }
+      responses:
+        '200':
+          description: 'Session token (store in SecureStore, send as `Authorization: Bearer <token>`)'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expires_at: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: End this session (does not sign out of Microsoft)
+      responses:
+        '204': { description: Signed out }
+  /me:
+    get:
+      tags: [auth]
+      summary: Current user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  # ------------------------------------------------------------------ catalogue
+  /categories:
+    get:
+      summary: List categories
+      tags: [catalogue]
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+  /listings:
+    get:
+      tags: [catalogue]
+      summary: Browse and search published listings (newest first)
+      security: []
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Full-text search (web-search syntax). }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { $ref: '#/components/schemas/ListingKind' } }
+        - { name: venture, in: query, schema: { type: string }, description: Venture slug. }
+        - { name: cursor, in: query, schema: { type: string, format: uuid }, description: '`next_cursor` from the previous page.' }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Listing' } }
+                  next_cursor: { type: string, format: uuid, nullable: true }
+  /listings/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [catalogue]
+      summary: Listing detail (unpublished listings visible to venture members and admins only)
+      security: [{}, { cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [listings]
+      summary: Edit a listing (venture members)
+      description: Content changes to a published or rejected listing send it back to `pending_review`. Stock-only changes do not.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingUpdate' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+    delete:
+      tags: [listings]
+      summary: Archive a listing (venture members)
+      responses:
+        '204': { description: Archived }
+  /listings/{id}/submit:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [listings]
+      summary: Submit a draft or rejected listing for review
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+
+  # ------------------------------------------------------------------ ventures
+  /ventures:
+    get:
+      tags: [ventures]
+      summary: Approved ventures
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Venture' } } } } }
+    post:
+      tags: [ventures]
+      summary: Apply to sell (creates a pending venture with you as owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                slug: { type: string, description: Defaults to a slug of the name. }
+                description: { type: string, maxLength: 4000 }
+                contact_email: { type: string }
+                contact_phone: { type: string }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Venture' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /ventures/{venture}:
+    parameters: [{ $ref: '#/components/parameters/Venture' }]
+    get:
+      summary: Venture profile (pending ventures visible to members and admins only)
+      tags: [ventures]
+      security: [{}, { cookieAuth: [] }, { bearerAuth: [] }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Venture' } } } }
+    patch:
+      tags: [ventures]
+      summary: Edit venture profile (members)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                contact_email: { type: string }
+                contact_phone: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Venture' } } } }
+  /ventures/{venture}/members:
+    parameters: [{ $ref: '#/components/parameters/Venture' }]
+    get:
+      summary: List venture members
+      tags: [ventures]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id: { type: string, format: uuid }
+                    display_name: { type: string }
+                    email: { type: string }
+                    role: { $ref: '#/components/schemas/MemberRole' }
+    post:
+      tags: [ventures]
+      summary: Add a teammate by email (owners). They must have signed in once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string }
+                role: { $ref: '#/components/schemas/MemberRole' }
+      responses:
+        '204': { description: Added }
+        '404': { $ref: '#/components/responses/Error' }
+  /ventures/{venture}/members/{user_id}:
+    parameters:
+      - { $ref: '#/components/parameters/Venture' }
+      - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [ventures]
+      summary: Remove a member (owners, or yourself). The last owner cannot be removed.
+      responses:
+        '204': { description: Removed }
+  /ventures/{venture}/listings:
+    parameters: [{ $ref: '#/components/parameters/Venture' }]
+    get:
+      tags: [listings]
+      summary: All non-archived listings of a venture (members and admins)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Listing' } } } } }
+    post:
+      tags: [listings]
+      summary: Create a draft listing (members)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingCreate' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+  /ventures/{venture}/orders:
+    parameters: [{ $ref: '#/components/parameters/Venture' }]
+    get:
+      tags: [orders]
+      summary: Orders received by a venture (members and admins)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Order' } } } } }
+
+  # ------------------------------------------------------------------ media
+  /listings/{id}/images:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [media]
+      summary: Upload a listing image (raw body, max 5 MB, up to 8 per listing)
+      description: The file type is detected from its content; only JPEG, PNG and WebP are accepted.
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '201': { description: Uploaded, content: { application/json: { schema: { $ref: '#/components/schemas/Image' } } } }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+  /listings/{id}/images/{image_id}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { name: image_id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Delete a listing image
+      tags: [media]
+      responses:
+        '204': { description: Deleted }
+  /ventures/{venture}/logo:
+    parameters: [{ $ref: '#/components/parameters/Venture' }]
+    post:
+      tags: [media]
+      summary: Upload the venture logo (raw body, JPEG/PNG/WebP, max 5 MB)
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logo_url: { type: string }
+
+  # ------------------------------------------------------------------ orders
+  /orders:
+    get:
+      tags: [orders]
+      summary: My orders (buyer)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Order' } } } } }
+    post:
+      tags: [orders]
+      summary: Check out a cart
+      description: Items are split into one order per venture. Stock is reserved; unpaid orders are cancelled after 60 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [listing_id, quantity]
+                    properties:
+                      listing_id: { type: string, format: uuid }
+                      quantity: { type: integer, minimum: 1, maximum: 20 }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Order' } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /orders/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      summary: Order detail (buyer, venture members, admins)
+      tags: [orders]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+  /orders/{id}/pay:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [payments]
+      summary: Start PayFast checkout (buyer)
+      description: |
+        Open `checkout_url` in the browser (web: `window.location`; native:
+        `WebBrowser.openAuthSessionAsync(checkout_url, 'eduvosmarket://')`). After payment the buyer
+        returns to `/orders/{id}?payment=return|cancel` (web) or `eduvosmarket://orders/{id}?payment=…` (app).
+        The order becomes `paid` only once PayFast's server-to-server notification is verified, so poll
+        `GET /orders/{id}` after returning.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client: { type: string, enum: [web, app], default: web }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment_id: { type: string, format: uuid }
+                  checkout_url: { type: string }
+  /orders/{id}/accept:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [orders]
+      summary: Seller accepts a paid order
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+  /orders/{id}/fulfil:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [orders]
+      summary: Seller marks an accepted order as fulfilled
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+  /orders/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [orders]
+      summary: Cancel (buyer while unpaid; seller until fulfilled). Paid cancellations are flagged for refund.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+
+  # ------------------------------------------------------------------ payments (PayFast-facing)
+  /payments/payfast/checkout/{token}:
+    get:
+      tags: [payments]
+      summary: Auto-submitting HTML form to PayFast (open via checkout_url)
+      security: []
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: HTML page }
+  /payments/payfast/return/{payment_id}:
+    get:
+      tags: [payments]
+      summary: PayFast return/cancel landing; redirects to the web or native app
+      security: []
+      parameters:
+        - { name: payment_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: outcome, in: query, schema: { type: string, enum: [return, cancel] } }
+      responses:
+        '303': { description: Redirect }
+  /payments/payfast/notify:
+    post:
+      tags: [payments]
+      summary: PayFast ITN webhook (signature + server validation + amount checked)
+      security: []
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: { type: object }
+      responses:
+        '200': { description: Processed }
+        '400': { $ref: '#/components/responses/Error' }
+
+  # ------------------------------------------------------------------ admin
+  /admin/queue:
+    get:
+      tags: [admin]
+      summary: Pending ventures and listings awaiting review
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ventures: { type: array, items: { $ref: '#/components/schemas/Venture' } }
+                  listings: { type: array, items: { $ref: '#/components/schemas/Listing' } }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/ventures/{id}/approve:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      summary: Approve a venture
+      tags: [admin]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Venture' } } } }
+  /admin/ventures/{id}/suspend:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [admin]
+      summary: Suspend (hides the venture and all its listings)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { reason: { type: string } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Venture' } } } }
+  /admin/listings/{id}/approve:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [admin]
+      summary: Publish a listing (its venture must be approved)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/listings/{id}/reject:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      summary: Reject a listing with a reason
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Listing' } } } }
+  /admin/audit:
+    get:
+      summary: Audit log
+      tags: [admin]
+      parameters:
+        - { name: target_id, in: query, schema: { type: string, format: uuid } }
+        - { name: cursor, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: 'Up to 100 entries, newest first' }
+
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: __Host-session, description: '`session` when served over plain http (local dev).' }
+    bearerAuth: { type: http, scheme: bearer, description: Token from /auth/app/exchange (native app). }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Venture: { name: venture, in: path, required: true, schema: { type: string }, description: Venture id or slug. }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: not_found }
+              message: { type: string }
+  schemas:
+    ListingKind: { type: string, enum: [product, service] }
+    ListingStatus: { type: string, enum: [draft, pending_review, published, rejected, archived] }
+    VentureStatus: { type: string, enum: [pending, approved, suspended] }
+    MemberRole: { type: string, enum: [owner, member] }
+    OrderStatus: { type: string, enum: [pending_payment, paid, accepted, fulfilled, cancelled, refunded] }
+    Me:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        display_name: { type: string }
+        is_admin: { type: boolean }
+        ventures:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              slug: { type: string }
+              name: { type: string }
+              status: { $ref: '#/components/schemas/VentureStatus' }
+              role: { $ref: '#/components/schemas/MemberRole' }
+    Category:
+      type: object
+      properties:
+        slug: { type: string, example: food-drinks }
+        name: { type: string, example: Food & Drinks }
+    Venture:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        logo_url: { type: string, nullable: true }
+        contact_email: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/VentureStatus' }
+        status_reason: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    Image:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+    Listing:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        venture:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            slug: { type: string }
+            name: { type: string }
+        kind: { $ref: '#/components/schemas/ListingKind' }
+        title: { type: string }
+        description: { type: string }
+        category: { type: string, nullable: true }
+        price_cents: { type: integer, format: int64 }
+        currency: { type: string, example: ZAR }
+        stock: { type: integer, nullable: true, description: null = unlimited }
+        status: { $ref: '#/components/schemas/ListingStatus' }
+        rejection_reason: { type: string, nullable: true }
+        images: { type: array, items: { $ref: '#/components/schemas/Image' } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ListingCreate:
+      type: object
+      required: [kind, title, price_cents]
+      properties:
+        kind: { $ref: '#/components/schemas/ListingKind' }
+        title: { type: string, minLength: 3, maxLength: 120 }
+        description: { type: string, maxLength: 5000 }
+        category: { type: string, description: Category slug. }
+        price_cents: { type: integer, minimum: 0, maximum: 10000000 }
+        stock: { type: integer, nullable: true, minimum: 0 }
+    ListingUpdate:
+      type: object
+      properties:
+        kind: { $ref: '#/components/schemas/ListingKind' }
+        title: { type: string }
+        description: { type: string }
+        category: { type: string }
+        price_cents: { type: integer }
+        stock: { type: integer, nullable: true, description: Send null for unlimited. }
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        total_cents: { type: integer, format: int64 }
+        currency: { type: string, example: ZAR }
+        note: { type: string, nullable: true }
+        venture:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            slug: { type: string }
+            name: { type: string }
+        buyer:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: string }
+            email: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              listing_id: { type: string, format: uuid }
+              title: { type: string }
+              unit_price_cents: { type: integer, format: int64 }
+              quantity: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }

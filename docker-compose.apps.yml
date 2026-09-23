@@ -1,0 +1,46 @@
+services:
+
+  backend:
+    build: ./backend
+    container_name: market-backend
+    restart: unless-stopped
+    init: true
+    depends_on:
+      market-postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # Secrets and settings come from backend/.env (template: backend/example.env).
+    env_file:
+      - path: ./backend/.env
+        required: false
+    # Container-specific values override backend/.env.
+    environment:
+      BIND: 0.0.0.0:8090
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@market-postgres:5432/${POSTGRES_DB:-selfstudy}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-media}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+
+  reverse-proxy:
+    build: ./reverse-proxy
+    container_name: market-proxy
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - backend
+      - minio
+    environment:
+      LISTEN: 0.0.0.0:8080
+      # The Expo dev server runs on the host (so phones can reach Metro). With Docker Desktop +
+      # WSL, host.docker.internal is the Windows host, so set FRONTEND_UPSTREAM to an address
+      # where the WSL-side Expo server is reachable (e.g. the WSL eth0 IP) if you get 502s on /.
+      ROUTES: /api=${BACKEND_UPSTREAM:-backend:8090},/${S3_BUCKET:-media}=minio:9000,/=${FRONTEND_UPSTREAM:-host.docker.internal:8081}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${PROXY_PORT:-8080}:8080"
+
+
