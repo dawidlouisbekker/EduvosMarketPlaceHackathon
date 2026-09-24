@@ -17,7 +17,7 @@ services:
     # Container-specific values override backend/.env.
     environment:
       BIND: 0.0.0.0:8090
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@market-postgres:5432/${POSTGRES_DB:-selfstudy}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@market-postgres:5432/${POSTGRES_DB:-entrepreneur_hub}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: ${S3_BUCKET:-media}
