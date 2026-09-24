@@ -1,6 +1,6 @@
 
 # Project teams integration
-Teams integration for project participants
+Teams integration for project participants for meetings.
 
 # Push notification
 Push notification system for alerts. Must decide on all the alerts.
