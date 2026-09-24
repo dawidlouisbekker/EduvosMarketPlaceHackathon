@@ -2,12 +2,20 @@
 -- varchar(n) is stored exactly like text in PostgreSQL; the (n) only enforces a maximum length.
 
 /*
- RULES:
+ DATABASEDESIGN RULES:
  VARCHAR length is value in 2^x except for email (320)
+ Explain fields with a '--' comment to the right. Describe the reason for the table at the bottom.
 */
 
 CREATE TYPE session_kind AS ENUM ('web', 'app');
-CREATE TYPE idea_visibility AS ENUM ('public', 'private');
+CREATE TYPE visibility AS ENUM ('public', 'private');   -- used by ideas and projects
+
+
+-- ---------------------------------------------------------------- skills
+CREATE TABLE skills (
+    name        varchar(128) PRIMARY KEY
+);
+-- A list of all possible skills that users can have.
 
 -- ---------------------------------------------------------------- identity
 
@@ -22,6 +30,35 @@ CREATE TABLE users (
     last_login_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX users_email_idx ON users (lower(email));
+
+CREATE TABLE user_skills (
+    user_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    skill       varchar(128) NOT NULL REFERENCES skills (name) ON DELETE RESTRICT,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, skill)
+);
+/*
+ skills that user claims they have.
+*/
+
+CREATE TABLE skill_vouches (
+    user_id     uuid NOT NULL,                     -- the user being vouched for
+    skill       varchar(128) NOT NULL,             -- must be a skill user_id claims (user_skills)
+    voucher_id  uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,   -- the user vouching
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, skill, voucher_id),
+    FOREIGN KEY (user_id, skill) REFERENCES user_skills (user_id, skill) ON DELETE CASCADE,
+    CHECK (user_id <> voucher_id)                  -- no vouching for yourself
+);
+/*
+    users can click on a skill and vouch that the user has this skill.
+    used to show how many people vouch for a persons skill on the user's public profile.
+    Removing a skill from user_skills removes its vouches.
+*/
+-- "Vouches I have given"
+CREATE INDEX skill_vouches_voucher_idx ON skill_vouches (voucher_id);
+
+-- ---------------------------------------------------------------- identity end
 
 CREATE TABLE sessions (
     id            uuid PRIMARY KEY,
@@ -77,21 +114,34 @@ CREATE TABLE projects (
     name          varchar(128) NOT NULL,
     description   varchar(2048) NOT NULL DEFAULT '',
     -- public: everyone signed in. private: the owner plus the users in project_participants.
-    visibility    idea_visibility NOT NULL DEFAULT 'public',
+    visibility    visibility NOT NULL DEFAULT 'public',
     deadline      timestamptz default NULL,
+    show_media    boolean NOT NULL DEFAULT false, -- Youtube videos linked to the project which will be shown on the project public page.
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX projects_owner_idx ON projects (owner_id);
 
+CREATE TABLE project_media (
+    id            uuid PRIMARY KEY,
+    project_id    uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    url           varchar(2048) NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+-- URLs of the youtube videos
+CREATE INDEX project_media_project_idx ON project_media (project_id);
+
 CREATE TABLE project_roles (
     id            uuid PRIMARY KEY,
     project_id    uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
     name          varchar(64) NOT NULL,
-    created_at    timestamptz NOT NULL DEFAULT now()
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project_id, name),   -- also serves "roles of this project" lookups
+    UNIQUE (project_id, id)      -- target of project_participant_roles' (project_id, role_id) foreign key
 );
--- Roles available in the project decided by the creator
-CREATE INDEX project_roles_project_idx ON project_roles (project_id);
+-- Roles available in the project decided by the creator.
+-- This allows the owner to create custom roles.
+-- If someone requests to join the project the owner can create a custom role for them before adding them and then assigning them.
 
 CREATE TABLE project_participant_requests (
     project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
@@ -122,20 +172,87 @@ CREATE TABLE project_participants (
 -- "Who is participating in this project?"
 
 CREATE TABLE project_participant_roles (
-    participant_id      uuid NOT NULL REFERENCES project_participants (user_id) ON DELETE CASCADE,
-    role                varchar(64) NOT NULL,
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (participant_id, role)
-);
-
-CREATE TABLE project_participant_roles (
-    project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
-    user_id      uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    role         varchar(64) NOT NULL,
+    project_id   uuid NOT NULL,
+    user_id      uuid NOT NULL,                    -- must be a participant of project_id
+    role_id      uuid NOT NULL,                    -- must be a role of project_id
     created_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (project_id, user_id, role)
+    PRIMARY KEY (project_id, user_id, role_id),
+    FOREIGN KEY (project_id, user_id) REFERENCES project_participants (project_id, user_id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id, role_id) REFERENCES project_roles (project_id, id) ON DELETE CASCADE
 );
+-- Roles assigned to a participant. The two composite foreign keys make the database enforce
+-- that the user is a participant of the project and that the role belongs to the same project:
+-- removing a participant or deleting a role removes the assignment.
+-- "Who has this role?"
+CREATE INDEX project_participant_roles_role_idx ON project_participant_roles (role_id);
 
+CREATE TABLE project_categories (
+    id           uuid PRIMARY KEY,
+    project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    name         varchar(64) NOT NULL,             -- e.g. "Design", "Backend", "Marketing"
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project_id, name),                     -- also serves "categories of this project" lookups
+    UNIQUE (project_id, id)                        -- target of the (project_id, category_id) foreign keys below
+);
+-- Categories of work in a project, defined by the owner like project_roles.
+-- Tasks are tagged with categories, and roles cover categories, which links tasks to the people who do them.
+
+CREATE TABLE project_role_categories (
+    project_id   uuid NOT NULL,
+    role_id      uuid NOT NULL,                    -- must be a role of project_id
+    category_id  uuid NOT NULL,                    -- must be a category of project_id
+    PRIMARY KEY (project_id, role_id, category_id),
+    FOREIGN KEY (project_id, role_id) REFERENCES project_roles (project_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id, category_id) REFERENCES project_categories (project_id, id) ON DELETE CASCADE
+);
+-- The categories each role is responsible for. The composite foreign keys keep role and category
+-- in the same project.
+-- "Which roles cover this category?"
+CREATE INDEX project_role_categories_category_idx ON project_role_categories (category_id);
+
+CREATE TABLE project_tasks (
+    id           uuid PRIMARY KEY,
+    project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    position     integer NOT NULL CHECK (position >= 0),   -- order of the task in the project's sequence
+    description  varchar(1024) NOT NULL,
+    deadline     timestamptz NOT NULL,             -- estimated deadline set by the creator
+    completed    boolean NOT NULL DEFAULT false,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (project_id, id),                       -- target of project_task_categories' (project_id, task_id) foreign key
+    -- Deferred so tasks can be reordered by swapping positions inside one transaction.
+    -- Also serves "tasks of this project in order" lookups.
+    UNIQUE (project_id, position) DEFERRABLE INITIALLY DEFERRED
+);
+-- Sequential tasks of a project, done in position order.
+-- Every task needs at least one category (project_task_categories); the backend inserts the task
+-- and its categories in the same transaction.
+
+CREATE TABLE project_task_categories (
+    project_id   uuid NOT NULL,
+    task_id      uuid NOT NULL,                    -- must be a task of project_id
+    category_id  uuid NOT NULL,                    -- must be a category of project_id
+    PRIMARY KEY (project_id, task_id, category_id),
+    FOREIGN KEY (project_id, task_id) REFERENCES project_tasks (project_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id, category_id) REFERENCES project_categories (project_id, id) ON DELETE CASCADE
+);
+-- The categories a task belongs to. Together with project_role_categories this answers
+-- "which tasks can this role work on?". The composite foreign keys keep task and category in the same project.
+-- "Tasks in this category"
+CREATE INDEX project_task_categories_category_idx ON project_task_categories (category_id);
+
+CREATE TABLE user_entrepreneurial_vouches (
+    user_id      uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    description  varchar(1024) NOT NULL,           -- what the user did that showed entrepreneurship
+    voucher_id   uuid REFERENCES users (id) ON DELETE SET NULL,   -- must be an admin (enforced by the backend)
+    PRIMARY KEY (user_id, project_id),
+    CHECK (user_id <> voucher_id)                  -- no vouching for yourself; passes when voucher_id is NULL
+);
+/*
+    This is what determines if the user is an entrepreneur or not.
+    Only admins can vouch that a user is entrepreneurial.
+*/
 
 -- ---------------------------------------------------------------- ideas
 
@@ -151,7 +268,7 @@ CREATE TABLE ideas (
     title         varchar(128) NOT NULL,
     description   varchar(2048) NOT NULL,
     -- public: everyone signed in. private: the owner plus the users in idea_shares.
-    visibility    idea_visibility NOT NULL DEFAULT 'public',
+    visibility    visibility NOT NULL DEFAULT 'public',
     -- Set when the idea became (or was attached to) a project. Deleting the project keeps
     -- the idea and just unlinks it.
     project_id    uuid REFERENCES projects (id) ON DELETE SET NULL,
@@ -234,5 +351,4 @@ CREATE TABLE idea_problem_links (
     description   varchar(128) NOT NULL,
     PRIMARY KEY (problem_id, idea_id)
 );
-CREATE INDEX idea_problem_links_problem_idx ON idea_problem_links (problem_id);
 CREATE INDEX idea_problem_links_idea_idx ON idea_problem_links (idea_id);
