@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+import "incubator/v1/common.proto";
+
+service IdeaService {
+  // GET /ideas?sort=new|top&cursor=&limit=
+  // Public ideas plus private ideas the viewer owns or that are shared with them.
+  rpc ListIdeas(ListIdeasRequest) returns (ListIdeasResponse);
+
+  // GET /ideas/{id}
+  // 404 when it doesn't exist or the viewer may not see it.
+  rpc GetIdea(GetIdeaRequest) returns (GetIdeaResponse);
+
+  // POST /ideas
+  rpc CreateIdea(CreateIdeaRequest) returns (CreateIdeaResponse);
+
+  // PUT /ideas/{id}/vote -> 204 (idempotent)
+  rpc VoteIdea(VoteIdeaRequest) returns (VoteIdeaResponse);
+
+  // DELETE /ideas/{id}/vote -> 204 (idempotent)
+  rpc UnvoteIdea(UnvoteIdeaRequest) returns (UnvoteIdeaResponse);
+
+  // PUT /ideas/{id}/shares -> 204
+  // Owner only. Replaces the share list. Every user must be one of the owner's prospects.
+  // Newly added users get an idea_shared notification.
+  rpc SetIdeaShares(SetIdeaSharesRequest) returns (SetIdeaSharesResponse);
+
+  // GET /comment-types
+  rpc ListCommentTypes(ListCommentTypesRequest) returns (ListCommentTypesResponse);
+
+  // GET /ideas/{idea_id}/comments
+  // Flat list, oldest first; the client builds the tree from parent_id.
+  rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
+
+  // POST /ideas/{idea_id}/comments
+  // Notifies the idea owner (idea_comment) or, for a reply, the parent's author (comment_reply).
+  rpc CreateComment(CreateCommentRequest) returns (CreateCommentResponse);
+
+  // PUT /comments/{comment_id}/vote -> 204
+  rpc VoteComment(VoteCommentRequest) returns (VoteCommentResponse);
+
+  // DELETE /comments/{comment_id} -> 204
+  // Author only. Soft delete: replies keep their place and the content becomes "[deleted]".
+  rpc DeleteComment(DeleteCommentRequest) returns (DeleteCommentResponse);
+}
+
+// An idea_problem_links row with the problem's title.
+message IdeaProblemLink {
+  string problem_id = 1;
+  string problem_title = 2;
+  // How the idea solves the problem. max 128
+  string description = 3;
+}
+
+// An idea as shown in feeds and lists.
+message Idea {
+  string id = 1;
+  string user_id = 2;
+  // max 128
+  string title = 3;
+  // max 2048
+  string description = 4;
+  Visibility visibility = 5;
+  // Set when the idea became (or was attached to) a project.
+  optional string project_id = 6;
+  int32 vote_count = 7;
+  // ISO 8601 in the TypeScript client.
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  UserSummary author = 10;
+  bool viewer_voted = 11;
+  int32 comment_count = 12;
+  repeated IdeaProblemLink problems = 13;
+  optional string project_name = 14;
+}
+
+message ListIdeasRequest {
+  FeedSort sort = 1;
+  // Opaque; from the previous page's next_cursor.
+  optional string cursor = 2;
+  // 1..50, default 8.
+  int32 limit = 3;
+}
+
+message ListIdeasResponse {
+  repeated Idea items = 1;
+  // Absent on the last page.
+  optional string next_cursor = 2;
+}
+
+message GetIdeaRequest {
+  string id = 1;
+}
+
+message GetIdeaResponse {
+  Idea idea = 1;
+  bool is_owner = 2;
+  // Owner only: prospects the private idea is shared with. Empty for everyone else.
+  repeated UserSummary shared_with = 3;
+}
+
+message ProblemLinkInput {
+  string problem_id = 1;
+  // max 128
+  string description = 2;
+}
+
+message CreateIdeaRequest {
+  // 1..128
+  string title = 1;
+  // 1..2048
+  string description = 2;
+  Visibility visibility = 3;
+  repeated ProblemLinkInput problems = 4;
+}
+
+message CreateIdeaResponse {
+  string id = 1;
+}
+
+message VoteIdeaRequest {
+  string id = 1;
+}
+
+message VoteIdeaResponse {}
+
+message UnvoteIdeaRequest {
+  string id = 1;
+}
+
+message UnvoteIdeaResponse {}
+
+message SetIdeaSharesRequest {
+  string id = 1;
+  repeated string user_ids = 2;
+}
+
+message SetIdeaSharesResponse {}
+
+message CommentType {
+  string id = 1;
+  // max 32
+  string label = 2;
+  // #RRGGBB
+  string color = 3;
+}
+
+message ListCommentTypesRequest {}
+
+message ListCommentTypesResponse {
+  repeated CommentType comment_types = 1;
+}
+
+message Comment {
+  string id = 1;
+  string idea_id = 2;
+  // Absent for top-level comments.
+  optional string parent_id = 3;
+  // Absent when the comment is deleted or the author deleted their account.
+  UserSummary author = 4;
+  // CommentType.id
+  string comment_type = 5;
+  // max 512. "[deleted]" when deleted_at is set.
+  string content = 6;
+  // 0..10
+  int32 depth = 7;
+  int32 score = 8;
+  // -1, 0 or 1
+  int32 viewer_vote = 9;
+  google.protobuf.Timestamp deleted_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message ListCommentsRequest {
+  string idea_id = 1;
+}
+
+message ListCommentsResponse {
+  repeated Comment comments = 1;
+}
+
+message CreateCommentRequest {
+  string idea_id = 1;
+  // Absent for a top-level comment.
+  optional string parent_id = 2;
+  // CommentType.id
+  string comment_type = 3;
+  // 1..512
+  string content = 4;
+}
+
+message CreateCommentResponse {
+  string id = 1;
+}
+
+message VoteCommentRequest {
+  string comment_id = 1;
+  // -1, 0 (remove the vote) or 1
+  int32 value = 2;
+}
+
+message VoteCommentResponse {}
+
+message DeleteCommentRequest {
+  string comment_id = 1;
+}
+
+message DeleteCommentResponse {}

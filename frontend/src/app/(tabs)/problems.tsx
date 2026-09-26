@@ -8,7 +8,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getProblemFeed } from '@/mock/api';
+import { getProblemFeed } from '@/api';
 import type { FeedSort } from '@/types/models';
 
 export default function ProblemsScreen() {

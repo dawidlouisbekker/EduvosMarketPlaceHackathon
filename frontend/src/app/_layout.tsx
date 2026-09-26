@@ -1,6 +1,5 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -23,8 +22,6 @@ export default function RootLayout() {
 
 function App() {
   const { user } = useSession();
-  // Until the feed endpoints exist, the UI runs on mock data (src/mock) and can be explored without signing in.
-  const [demo, setDemo] = useState(false);
 
   return (
     <>
@@ -38,8 +35,9 @@ function App() {
         <Stack.Screen name="compose/problem" options={{ presentation: 'modal', title: 'New problem' }} />
         <Stack.Screen name="compose/idea" options={{ presentation: 'modal', title: 'New idea' }} />
         <Stack.Screen name="compose/project" options={{ presentation: 'modal', title: 'New project' }} />
+        <Stack.Screen name="edit/project/[id]" options={{ presentation: 'modal', title: 'Edit project' }} />
       </Stack>
-      {!user && !demo && <SignInScreen onDemo={() => setDemo(true)} />}
+      {!user && <SignInScreen />}
     </>
   );
 }

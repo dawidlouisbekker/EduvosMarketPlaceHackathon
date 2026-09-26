@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/form';
 import { ScrollScreen } from '@/components/scroll-screen';
-import { createProblem } from '@/mock/api';
+import { createProblem } from '@/api';
 
 export default function ComposeProblem() {
   const [title, setTitle] = useState('');

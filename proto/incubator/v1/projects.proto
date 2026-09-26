@@ -1,0 +1,438 @@
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+import "incubator/v1/common.proto";
+
+service ProjectService {
+  // GET /projects?sort=new|open_roles&cursor=&limit=
+  // Public projects plus private ones the viewer owns or participates in.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+
+  // GET /projects/{id}
+  // 404 when it doesn't exist or the viewer may not see it.
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+
+  // POST /projects
+  // The owner becomes a participant. With idea_id (an idea the viewer owns) the idea is linked to the project.
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+
+  // POST /projects/{id}/requests/me -> 204
+  // Ask to join. Notifies the owner (join_request).
+  rpc RequestToJoin(RequestToJoinRequest) returns (RequestToJoinResponse);
+
+  // DELETE /projects/{id}/requests/me -> 204
+  // Withdraw a join request.
+  rpc CancelJoinRequest(CancelJoinRequestRequest) returns (CancelJoinRequestResponse);
+
+  // POST /projects/{id}/requests/{user_id}/accept -> 204
+  // POST /projects/{id}/requests/{user_id}/decline -> 204
+  // Owner only. Accepting adds the user as a participant and notifies them (request_accepted).
+  rpc RespondToJoinRequest(RespondToJoinRequestRequest) returns (RespondToJoinRequestResponse);
+
+  // POST /projects/{id}/invites/me/accept -> 204
+  // POST /projects/{id}/invites/me/decline -> 204
+  rpc RespondToInvite(RespondToInviteRequest) returns (RespondToInviteResponse);
+
+  // PATCH /projects/{id}/tasks/{task_id} -> 204
+  // `completed`: owner or participant. The other fields: owner only.
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+
+  // ---------------------------------------------------------------- owner only
+  // The routes below return 403 for anyone but the owner (404 when the viewer may not see the project).
+
+  // PATCH /projects/{id} -> 204
+  rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse);
+
+  // DELETE /projects/{id} -> 204
+  // Ideas created from it are kept and unlinked; skill vouches keep counting without the role.
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+  // POST /projects/{id}/media
+  // YouTube links only.
+  rpc AddMedia(AddMediaRequest) returns (AddMediaResponse);
+
+  // DELETE /projects/{id}/media/{media_id} -> 204
+  rpc RemoveMedia(RemoveMediaRequest) returns (RemoveMediaResponse);
+
+  // POST /projects/{id}/categories
+  // 409 when the project already has a category with that name.
+  rpc AddCategory(AddCategoryRequest) returns (AddCategoryResponse);
+
+  // PATCH /projects/{id}/categories/{category_id} -> 204
+  rpc RenameCategory(RenameCategoryRequest) returns (RenameCategoryResponse);
+
+  // DELETE /projects/{id}/categories/{category_id} -> 204
+  // 409 when it is the only category of a task (every task needs at least one).
+  rpc RemoveCategory(RemoveCategoryRequest) returns (RemoveCategoryResponse);
+
+  // POST /projects/{id}/roles
+  // 409 when the project already has a role with that name.
+  rpc AddRole(AddRoleRequest) returns (AddRoleResponse);
+
+  // PATCH /projects/{id}/roles/{role_id} -> 204
+  rpc UpdateRole(UpdateRoleRequest) returns (UpdateRoleResponse);
+
+  // DELETE /projects/{id}/roles/{role_id} -> 204
+  // Also unassigns it; skill vouches based on it keep counting without the role.
+  rpc RemoveRole(RemoveRoleRequest) returns (RemoveRoleResponse);
+
+  // POST /projects/{id}/tasks
+  // Appended after the last task.
+  rpc AddTask(AddTaskRequest) returns (AddTaskResponse);
+
+  // DELETE /projects/{id}/tasks/{task_id} -> 204
+  rpc RemoveTask(RemoveTaskRequest) returns (RemoveTaskResponse);
+
+  // PUT /projects/{id}/tasks/order -> 204
+  // task_ids must list every task of the project exactly once, in the new order.
+  rpc ReorderTasks(ReorderTasksRequest) returns (ReorderTasksResponse);
+
+  // PUT /projects/{id}/participants/{user_id}/roles -> 204
+  // Replaces the participant's roles.
+  rpc SetParticipantRoles(SetParticipantRolesRequest) returns (SetParticipantRolesResponse);
+
+  // DELETE /projects/{id}/participants/{user_id} -> 204
+  // Not the owner.
+  rpc RemoveParticipant(RemoveParticipantRequest) returns (RemoveParticipantResponse);
+
+  // POST /projects/{id}/invites -> 204
+  // Only the owner's prospects who aren't on the team. Notifies them (project_invite).
+  rpc Invite(InviteRequest) returns (InviteResponse);
+
+  // DELETE /projects/{id}/invites/{user_id} -> 204
+  rpc CancelInvite(CancelInviteRequest) returns (CancelInviteResponse);
+}
+
+// Feed order for projects. In a query string: sort=new|open_roles.
+enum ProjectSort {
+  PROJECT_SORT_UNSPECIFIED = 0;
+  // Newest first (the default).
+  PROJECT_SORT_NEW = 1;
+  // Newest first, only projects with at least one open role.
+  PROJECT_SORT_OPEN_ROLES = 2;
+}
+
+// The viewer's relation to a project.
+enum ViewerRelation {
+  VIEWER_RELATION_UNSPECIFIED = 0;
+  VIEWER_RELATION_OWNER = 1;
+  VIEWER_RELATION_PARTICIPANT = 2;
+  // The owner invited the viewer.
+  VIEWER_RELATION_INVITED = 3;
+  // The viewer asked to join.
+  VIEWER_RELATION_REQUESTED = 4;
+  VIEWER_RELATION_NONE = 5;
+}
+
+// A project as shown in feeds and lists.
+message Project {
+  string id = 1;
+  string owner_id = 2;
+  // max 128
+  string name = 3;
+  // max 2048
+  string description = 4;
+  Visibility visibility = 5;
+  // Absent: no deadline.
+  google.protobuf.Timestamp deadline = 6;
+  // Whether the linked videos are shown.
+  bool show_media = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  UserSummary owner = 10;
+  // Participants other than the owner.
+  repeated UserSummary participants = 11;
+  int32 task_total = 12;
+  int32 task_done = 13;
+  // Names of roles nobody has been assigned to yet.
+  repeated string open_roles = 14;
+  // 0 when show_media is false.
+  int32 media_count = 15;
+}
+
+message ProjectCategory {
+  string id = 1;
+  // max 64
+  string name = 2;
+}
+
+message ProjectRole {
+  string id = 1;
+  // max 64
+  string name = 2;
+  repeated string category_ids = 3;
+}
+
+message ProjectTask {
+  string id = 1;
+  // Order of the task in the project's sequence.
+  int32 position = 2;
+  // max 1024
+  string description = 3;
+  google.protobuf.Timestamp deadline = 4;
+  bool completed = 5;
+  repeated string category_ids = 6;
+}
+
+message ProjectParticipant {
+  UserSummary user = 1;
+  repeated string role_ids = 2;
+}
+
+message ProjectMedia {
+  string id = 1;
+  string url = 2;
+}
+
+message ListProjectsRequest {
+  ProjectSort sort = 1;
+  // Opaque; from the previous page's next_cursor.
+  optional string cursor = 2;
+  // 1..50, default 8.
+  int32 limit = 3;
+}
+
+message ListProjectsResponse {
+  repeated Project items = 1;
+  // Absent on the last page.
+  optional string next_cursor = 2;
+}
+
+message GetProjectRequest {
+  string id = 1;
+}
+
+message GetProjectResponse {
+  Project project = 1;
+  ViewerRelation viewer_relation = 2;
+  repeated ProjectCategory categories = 3;
+  repeated ProjectRole roles = 4;
+  // In position order.
+  repeated ProjectTask tasks = 5;
+  // Owner first, then the other participants, each with their roles.
+  repeated ProjectParticipant team = 6;
+  // Empty when show_media is false, except for the owner.
+  repeated ProjectMedia media = 7;
+  // Owner only: users who asked to join.
+  repeated UserSummary join_requests = 8;
+  // The idea the project was created from, if any.
+  IdeaRef source_idea = 9;
+  // Owner only: users invited who haven't answered yet.
+  repeated UserSummary invites = 10;
+}
+
+message CreateProjectRequest {
+  // 1..128
+  string name = 1;
+  // max 2048
+  string description = 2;
+  Visibility visibility = 3;
+  google.protobuf.Timestamp deadline = 4;
+  // An idea owned by the viewer to link to the new project.
+  optional string idea_id = 5;
+}
+
+message CreateProjectResponse {
+  string id = 1;
+}
+
+message RequestToJoinRequest {
+  string id = 1;
+}
+
+message RequestToJoinResponse {}
+
+message CancelJoinRequestRequest {
+  string id = 1;
+}
+
+message CancelJoinRequestResponse {}
+
+message RespondToJoinRequestRequest {
+  string id = 1;
+  string user_id = 2;
+  // From the path: accept or decline.
+  bool accept = 3;
+}
+
+message RespondToJoinRequestResponse {}
+
+message RespondToInviteRequest {
+  string id = 1;
+  // From the path: accept or decline.
+  bool accept = 2;
+}
+
+message RespondToInviteResponse {}
+
+message UpdateTaskRequest {
+  string id = 1;
+  string task_id = 2;
+  // Absent: unchanged.
+  optional bool completed = 3;
+  // Owner only. 1..1024. Absent: unchanged.
+  optional string description = 4;
+  // Owner only. Absent: unchanged.
+  google.protobuf.Timestamp deadline = 5;
+  // Owner only, applied when set_categories is true. At least one.
+  repeated string category_ids = 6;
+  bool set_categories = 7;
+}
+
+message UpdateTaskResponse {}
+
+message UpdateProjectRequest {
+  string id = 1;
+  // 1..128. Absent: unchanged.
+  optional string name = 2;
+  // max 2048. Absent: unchanged.
+  optional string description = 3;
+  // UNSPECIFIED: unchanged.
+  Visibility visibility = 4;
+  // Absent: unchanged (see clear_deadline).
+  google.protobuf.Timestamp deadline = 5;
+  // Removes the deadline.
+  bool clear_deadline = 6;
+  // Absent: unchanged.
+  optional bool show_media = 7;
+}
+
+message UpdateProjectResponse {}
+
+message DeleteProjectRequest {
+  string id = 1;
+}
+
+message DeleteProjectResponse {}
+
+message AddMediaRequest {
+  string id = 1;
+  // A YouTube video URL. max 2048
+  string url = 2;
+}
+
+message AddMediaResponse {
+  string id = 1;
+}
+
+message RemoveMediaRequest {
+  string id = 1;
+  string media_id = 2;
+}
+
+message RemoveMediaResponse {}
+
+message AddCategoryRequest {
+  string id = 1;
+  // 1..64
+  string name = 2;
+}
+
+message AddCategoryResponse {
+  string id = 1;
+}
+
+message RenameCategoryRequest {
+  string id = 1;
+  string category_id = 2;
+  // 1..64
+  string name = 3;
+}
+
+message RenameCategoryResponse {}
+
+message RemoveCategoryRequest {
+  string id = 1;
+  string category_id = 2;
+}
+
+message RemoveCategoryResponse {}
+
+message AddRoleRequest {
+  string id = 1;
+  // 1..64
+  string name = 2;
+  // Categories the role covers.
+  repeated string category_ids = 3;
+}
+
+message AddRoleResponse {
+  string id = 1;
+}
+
+message UpdateRoleRequest {
+  string id = 1;
+  string role_id = 2;
+  // 1..64. Absent: unchanged.
+  optional string name = 3;
+  // Applied when set_categories is true.
+  repeated string category_ids = 4;
+  bool set_categories = 5;
+}
+
+message UpdateRoleResponse {}
+
+message RemoveRoleRequest {
+  string id = 1;
+  string role_id = 2;
+}
+
+message RemoveRoleResponse {}
+
+message AddTaskRequest {
+  string id = 1;
+  // 1..1024
+  string description = 2;
+  google.protobuf.Timestamp deadline = 3;
+  // At least one.
+  repeated string category_ids = 4;
+}
+
+message AddTaskResponse {
+  string id = 1;
+}
+
+message RemoveTaskRequest {
+  string id = 1;
+  string task_id = 2;
+}
+
+message RemoveTaskResponse {}
+
+message ReorderTasksRequest {
+  string id = 1;
+  repeated string task_ids = 2;
+}
+
+message ReorderTasksResponse {}
+
+message SetParticipantRolesRequest {
+  string id = 1;
+  string user_id = 2;
+  repeated string role_ids = 3;
+}
+
+message SetParticipantRolesResponse {}
+
+message RemoveParticipantRequest {
+  string id = 1;
+  string user_id = 2;
+}
+
+message RemoveParticipantResponse {}
+
+message InviteRequest {
+  string id = 1;
+  string user_id = 2;
+}
+
+message InviteResponse {}
+
+message CancelInviteRequest {
+  string id = 1;
+  string user_id = 2;
+}
+
+message CancelInviteResponse {}

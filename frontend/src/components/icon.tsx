@@ -32,6 +32,8 @@ const ICONS = {
   chevron: { ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' },
   chevronDown: { ios: 'chevron.down', android: 'keyboard_arrow_down', web: 'keyboard_arrow_down' },
   chevronUp: { ios: 'chevron.up', android: 'keyboard_arrow_up', web: 'keyboard_arrow_up' },
+  edit: { ios: 'pencil', android: 'edit', web: 'edit' },
+  trash: { ios: 'trash', android: 'delete', web: 'delete' },
 } as const;
 
 export type IconName = keyof typeof ICONS;

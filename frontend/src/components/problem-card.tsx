@@ -7,7 +7,7 @@ import { ThemedText } from './themed-text';
 import { Stat, VoteButton } from './vote-button';
 
 import { Spacing } from '@/constants/theme';
-import { toggleProblemVote } from '@/mock/api';
+import { toggleProblemVote } from '@/api';
 import type { FeedProblem } from '@/types/models';
 
 export function ProblemCard({ problem }: { problem: FeedProblem }) {
@@ -28,7 +28,7 @@ export function ProblemCard({ problem }: { problem: FeedProblem }) {
           label="Me too"
           count={problem.vote_count}
           active={problem.viewer_voted}
-          onToggle={() => toggleProblemVote(problem.id)}
+          onToggle={() => toggleProblemVote(problem.id, problem.viewer_voted)}
         />
         <Stat icon="idea" value={`${problem.idea_count} idea${problem.idea_count === 1 ? '' : 's'}`} />
       </View>

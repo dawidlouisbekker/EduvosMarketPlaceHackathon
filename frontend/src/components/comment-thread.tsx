@@ -7,9 +7,10 @@ import { Chip } from './chip';
 import { Icon } from './icon';
 import { ThemedText } from './themed-text';
 
+import { addComment, deleteComment, voteComment } from '@/api';
+import { useSession } from '@/auth/session';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { addComment, deleteComment, MY_ID, voteComment } from '@/mock/api';
 import type { CommentType, IdeaComment } from '@/types/models';
 import { timeAgo } from '@/utils/time';
 
@@ -82,13 +83,15 @@ export function CommentComposer({
 export function CommentThread({ ideaId, comments, types }: { ideaId: string; comments: IdeaComment[]; types: CommentType[] }) {
   const children = new Map<string | null, IdeaComment[]>();
   for (const c of comments) {
-    const list = children.get(c.parent_id) ?? [];
+    const parent = c.parent_id ?? null;
+    const list = children.get(parent) ?? [];
     list.push(c);
-    children.set(c.parent_id, list);
+    children.set(parent, list);
   }
-  children.get(null)?.sort((a, b) => b.score - a.score || a.created_at.localeCompare(b.created_at));
+  const byDate = (a: IdeaComment, b: IdeaComment) => (a.created_at ?? '').localeCompare(b.created_at ?? '');
+  children.get(null)?.sort((a, b) => b.score - a.score || byDate(a, b));
   for (const [key, list] of children) {
-    if (key !== null) list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    if (key !== null) list.sort(byDate);
   }
   const typeById = new Map(types.map((t) => [t.id, t]));
 
@@ -115,6 +118,7 @@ function CommentNode({
   types: CommentType[];
 }) {
   const theme = useTheme();
+  const myId = useSession().user?.id;
   const [collapsed, setCollapsed] = useState(false);
   const [replying, setReplying] = useState(false);
   const replies = childrenOf.get(comment.id) ?? [];
@@ -171,7 +175,7 @@ function CommentNode({
                   </ThemedText>
                 </Pressable>
               )}
-              {comment.author?.id === MY_ID && (
+              {!!myId && comment.author?.id === myId && (
                 <Pressable onPress={() => deleteComment(comment.id)} hitSlop={6}>
                   <ThemedText type="small" themeColor="textSecondary">
                     Delete

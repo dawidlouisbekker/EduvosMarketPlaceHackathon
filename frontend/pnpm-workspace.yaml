@@ -1,2 +1,3 @@
 allowBuilds:
+  '@bufbuild/buf': false
   unrs-resolver: false

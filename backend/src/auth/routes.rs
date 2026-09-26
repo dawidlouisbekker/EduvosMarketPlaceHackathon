@@ -1,4 +1,4 @@
-//! Sign-in endpoints.
+//! Sign-in endpoints (`AuthService` in proto/incubator/v1/auth.proto).
 //!
 //! Web:    GET /auth/login[?prompt=none] -> Entra -> GET /auth/callback -> session cookie -> return_to
 //! Native: GET /auth/login?client=app&redirect_uri=…&code_challenge=… -> Entra -> GET /auth/callback
@@ -8,18 +8,19 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Router;
 use axum_extra::extract::cookie::CookieJar;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde::Deserialize;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use super::oidc::AuthorizeRequest;
 use super::session::{create_session, removal_cookie, session_cookie};
 use super::AuthUser;
-use crate::AppState;
+use crate::api::proto::{Proto, ProtoResult, ok};
+use crate::api::views::ts;
 use crate::error::{AppError, AppResult};
+use crate::{AppState, pb};
 use crate::models::SessionKind;
 use crate::util::{pkce_challenge, random_token, safe_return_to, sha256, with_query};
 
@@ -35,6 +36,7 @@ pub fn router() -> Router<AppState> {
         .route("/me", get(me))
 }
 
+/// Query of GET /auth/login (`incubator.v1.LoginRequest`).
 #[derive(Deserialize)]
 struct LoginQuery {
     return_to: Option<String>,
@@ -95,6 +97,7 @@ async fn login(State(state): State<AppState>, Query(q): Query<LoginQuery>) -> Ap
     Ok(Redirect::to(&url))
 }
 
+/// Query of GET /auth/callback (`incubator.v1.CallbackRequest`).
 #[derive(Deserialize)]
 struct CallbackQuery {
     code: Option<String>,
@@ -179,19 +182,6 @@ async fn callback(
     Ok((jar, Redirect::to(&attempt.return_to)).into_response())
 }
 
-#[derive(Deserialize)]
-struct ExchangeBody {
-    code: String,
-    code_verifier: String,
-}
-
-#[derive(Serialize)]
-struct ExchangeResponse {
-    token: String,
-    #[serde(with = "time::serde::rfc3339")]
-    expires_at: OffsetDateTime,
-}
-
 #[derive(sqlx::FromRow)]
 struct Handoff {
     user_id: Uuid,
@@ -202,8 +192,8 @@ struct Handoff {
 async fn app_exchange(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<ExchangeBody>,
-) -> AppResult<Json<ExchangeResponse>> {
+    Proto(body): Proto<pb::ExchangeCodeRequest>,
+) -> ProtoResult<pb::ExchangeCodeResponse> {
     let invalid = || AppError::new(StatusCode::BAD_REQUEST, "invalid_grant", "code is invalid or expired");
     let handoff = sqlx::query_as::<_, Handoff>(
         "DELETE FROM app_handoffs WHERE code_hash = $1 RETURNING user_id, code_challenge, expires_at",
@@ -217,7 +207,7 @@ async fn app_exchange(
     }
     let user_agent = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok());
     let (token, expires_at) = create_session(&state.db, handoff.user_id, SessionKind::App, user_agent).await?;
-    Ok(Json(ExchangeResponse { token, expires_at }))
+    ok(pb::ExchangeCodeResponse { token, expires_at: Some(ts(expires_at)) })
 }
 
 async fn logout(State(state): State<AppState>, user: AuthUser, jar: CookieJar) -> AppResult<impl IntoResponse> {
@@ -225,11 +215,11 @@ async fn logout(State(state): State<AppState>, user: AuthUser, jar: CookieJar) -
     Ok((jar.remove(removal_cookie(&state.cfg)), StatusCode::NO_CONTENT))
 }
 
-async fn me(user: AuthUser) -> Json<Value> {
-    Json(json!({
-        "id": user.id,
-        "email": user.email,
-        "display_name": user.display_name,
-        "is_admin": user.is_admin,
-    }))
+async fn me(user: AuthUser) -> ProtoResult<pb::GetMeResponse> {
+    ok(pb::GetMeResponse {
+        id: user.id.to_string(),
+        email: user.email,
+        display_name: user.display_name,
+        is_admin: user.is_admin,
+    })
 }

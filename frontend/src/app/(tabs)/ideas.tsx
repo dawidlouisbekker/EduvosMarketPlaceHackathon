@@ -8,7 +8,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getIdeaFeed } from '@/mock/api';
+import { getIdeaFeed } from '@/api';
 import type { FeedSort } from '@/types/models';
 
 export default function IdeasScreen() {

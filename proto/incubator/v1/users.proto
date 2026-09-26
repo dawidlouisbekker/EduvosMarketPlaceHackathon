@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+import "incubator/v1/common.proto";
+import "incubator/v1/ideas.proto";
+import "incubator/v1/problems.proto";
+import "incubator/v1/projects.proto";
+
+service UserService {
+  // GET /users/{id}
+  // 404 when the user doesn't exist.
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+
+  // GET /users/{id}/problems
+  // Newest first.
+  rpc ListUserProblems(ListUserProblemsRequest) returns (ListUserProblemsResponse);
+
+  // GET /users/{id}/ideas
+  // Newest first; private ones only if the viewer may see them.
+  rpc ListUserIdeas(ListUserIdeasRequest) returns (ListUserIdeasResponse);
+
+  // GET /users/{id}/projects
+  // Owned and participating, newest first; only those the viewer may see.
+  rpc ListUserProjects(ListUserProjectsRequest) returns (ListUserProjectsResponse);
+
+  // PATCH /me -> 204
+  rpc UpdateMe(UpdateMeRequest) returns (UpdateMeResponse);
+
+  // GET /prospects
+  // Users the viewer marked as prospects (the only people a private idea can be shared with).
+  rpc ListProspects(ListProspectsRequest) returns (ListProspectsResponse);
+
+  // PUT /prospects/{user_id} -> 204 (idempotent)
+  rpc AddProspect(AddProspectRequest) returns (AddProspectResponse);
+
+  // DELETE /prospects/{user_id} -> 204 (idempotent)
+  // Also revokes their access to all of the viewer's private ideas.
+  rpc RemoveProspect(RemoveProspectRequest) returns (RemoveProspectResponse);
+
+  // PUT /users/{user_id}/skills/{skill}/vouch -> 204
+  // The role must be one of the profile's vouchable_roles; no vouching for yourself.
+  // Replaces an existing vouch by the viewer for the same skill. Notifies the user (skill_vouch).
+  rpc VouchSkill(VouchSkillRequest) returns (VouchSkillResponse);
+
+  // DELETE /users/{user_id}/skills/{skill}/vouch -> 204
+  rpc RemoveSkillVouch(RemoveSkillVouchRequest) returns (RemoveSkillVouchResponse);
+}
+
+// Someone vouching that the user has a skill, based on the role they saw the user play in a project.
+message SkillVouch {
+  UserSummary voucher = 1;
+  // Absent when the role assignment or project was removed after vouching.
+  ProjectRef project = 2;
+  RoleRef role = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message UserSkill {
+  // max 128
+  string skill = 1;
+  int32 vouch_count = 2;
+  bool viewer_vouched = 3;
+  // Newest first.
+  repeated SkillVouch vouches = 4;
+}
+
+// A role the profile's user held in a project, which the viewer may vouch based on.
+message VouchableRole {
+  string project_id = 1;
+  string project_name = 2;
+  string role_id = 3;
+  string role_name = 4;
+}
+
+// An admin vouching that the user acted entrepreneurially in a project.
+message EntrepreneurVouch {
+  string project_id = 1;
+  string project_name = 2;
+  // max 1024
+  string description = 3;
+}
+
+message ProfileCounts {
+  int32 problems = 1;
+  // Only those the viewer may see.
+  int32 ideas = 2;
+  // Only those the viewer may see.
+  int32 projects = 3;
+}
+
+message GetProfileRequest {
+  string id = 1;
+}
+
+message GetProfileResponse {
+  UserSummary user = 1;
+  bool is_self = 2;
+  // The viewer has this user in their prospects.
+  bool is_prospect = 3;
+  // Most vouched first.
+  repeated UserSkill skills = 4;
+  // Roles the user held in projects the viewer worked on (all their roles for an admin viewer).
+  // Empty on your own profile.
+  repeated VouchableRole vouchable_roles = 5;
+  repeated EntrepreneurVouch entrepreneur_vouches = 6;
+  ProfileCounts counts = 7;
+}
+
+message ListUserProblemsRequest {
+  string id = 1;
+}
+
+message ListUserProblemsResponse {
+  repeated Problem problems = 1;
+}
+
+message ListUserIdeasRequest {
+  string id = 1;
+}
+
+message ListUserIdeasResponse {
+  repeated Idea ideas = 1;
+}
+
+message ListUserProjectsRequest {
+  string id = 1;
+}
+
+message ListUserProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message UpdateMeRequest {
+  // Short headline shown on the profile. max 256. Absent: unchanged.
+  optional string bio = 1;
+}
+
+message UpdateMeResponse {}
+
+message ListProspectsRequest {}
+
+message ListProspectsResponse {
+  repeated UserSummary prospects = 1;
+}
+
+message AddProspectRequest {
+  string user_id = 1;
+}
+
+message AddProspectResponse {}
+
+message RemoveProspectRequest {
+  string user_id = 1;
+}
+
+message RemoveProspectResponse {}
+
+message VouchSkillRequest {
+  string user_id = 1;
+  string skill = 2;
+  string project_id = 3;
+  string role_id = 4;
+}
+
+message VouchSkillResponse {}
+
+message RemoveSkillVouchRequest {
+  string user_id = 1;
+  string skill = 2;
+}
+
+message RemoveSkillVouchResponse {}

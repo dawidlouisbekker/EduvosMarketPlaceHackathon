@@ -9,36 +9,38 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useQuery } from '@/hooks/use-query';
 import { useTheme } from '@/hooks/use-theme';
-import { getNotifications, markAllRead, respondToInvite, respondToJoinRequest } from '@/mock/api';
-import type { Notification } from '@/types/models';
+import { getNotifications, markAllRead, respondToInvite, respondToJoinRequest } from '@/api';
+import { NotificationKind, type Notification } from '@/types/models';
 import { timeAgo } from '@/utils/time';
 
 function describe(n: Notification): string {
   const name = n.actor?.display_name ?? 'Someone';
   switch (n.kind) {
-    case 'project_invite':
+    case NotificationKind.PROJECT_INVITE:
       return `${name} invited you to join ${n.project?.name}`;
-    case 'join_request':
+    case NotificationKind.JOIN_REQUEST:
       return `${name} wants to join ${n.project?.name}`;
-    case 'request_accepted':
+    case NotificationKind.REQUEST_ACCEPTED:
       return `${name} accepted you into ${n.project?.name}`;
-    case 'idea_comment':
+    case NotificationKind.IDEA_COMMENT:
       return `${name} commented on ${n.idea?.title}: "${n.comment?.excerpt}"`;
-    case 'comment_reply':
+    case NotificationKind.COMMENT_REPLY:
       return `${name} replied to you: "${n.comment?.excerpt}"`;
-    case 'skill_vouch':
+    case NotificationKind.SKILL_VOUCH:
       return `${name} vouched for one of your skills`;
-    case 'idea_shared':
+    case NotificationKind.IDEA_SHARED:
       return `${name} shared a private idea with you: ${n.idea?.title}`;
-    case 'entrepreneur_vouch':
+    case NotificationKind.ENTREPRENEUR_VOUCH:
       return `${name} vouched that you are an entrepreneur for your work on ${n.project?.name}`;
+    default:
+      return `${name} did something`;
   }
 }
 
 function open(n: Notification) {
   if (n.idea) router.push({ pathname: '/idea/[id]', params: { id: n.idea.id } });
   else if (n.project) router.push({ pathname: '/project/[id]', params: { id: n.project.id } });
-  else if (n.kind === 'skill_vouch') router.push('/profile');
+  else if (n.kind === NotificationKind.SKILL_VOUCH) router.push('/profile');
   else if (n.actor) router.push({ pathname: '/user/[id]', params: { id: n.actor.id } });
 }
 
@@ -74,7 +76,7 @@ export default function InboxScreen() {
                         small
                         title="Accept"
                         onPress={() =>
-                          n.kind === 'project_invite'
+                          n.kind === NotificationKind.PROJECT_INVITE
                             ? respondToInvite(n.project!.id, true)
                             : respondToJoinRequest(n.project!.id, n.actor!.id, true)
                         }
@@ -84,7 +86,7 @@ export default function InboxScreen() {
                         variant="secondary"
                         title="Decline"
                         onPress={() =>
-                          n.kind === 'project_invite'
+                          n.kind === NotificationKind.PROJECT_INVITE
                             ? respondToInvite(n.project!.id, false)
                             : respondToJoinRequest(n.project!.id, n.actor!.id, false)
                         }

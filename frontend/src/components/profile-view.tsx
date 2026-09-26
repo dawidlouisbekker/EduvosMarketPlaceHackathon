@@ -26,7 +26,7 @@ import {
   toggleProspect,
   updateBio,
   vouchSkill,
-} from '@/mock/api';
+} from '@/api';
 import type { Profile, UserSkill, VouchableRole } from '@/types/models';
 import { timeAgo } from '@/utils/time';
 
@@ -138,7 +138,7 @@ function ProfileHeader({ profile }: { profile: Profile }) {
               variant={profile.is_prospect ? 'secondary' : 'primary'}
               icon={profile.is_prospect ? 'personCheck' : 'personAdd'}
               title={profile.is_prospect ? 'Prospect' : 'Add as prospect'}
-              onPress={() => toggleProspect(profile.id)}
+              onPress={() => toggleProspect(profile.id, profile.is_prospect)}
             />
           )}
         </View>
@@ -222,14 +222,14 @@ function VouchPanel({ profile, skill }: { profile: Profile; skill: UserSkill }) 
           No vouches yet.
         </ThemedText>
       ) : (
-        skill.vouches.map((v) => (
-          <View key={v.voucher.id} style={styles.vouchRow}>
-            <Pressable onPress={() => router.push({ pathname: '/user/[id]', params: { id: v.voucher.id } })}>
-              <Avatar user={v.voucher} size={32} />
+        skill.vouches.map(({ voucher, ...v }, i) => (
+          <View key={voucher?.id ?? i} style={styles.vouchRow}>
+            <Pressable disabled={!voucher} onPress={() => voucher && router.push({ pathname: '/user/[id]', params: { id: voucher.id } })}>
+              <Avatar user={voucher} size={32} />
             </Pressable>
             <View style={styles.flex}>
-              <Pressable onPress={() => router.push({ pathname: '/user/[id]', params: { id: v.voucher.id } })}>
-                <ThemedText type="smallBold">{v.voucher.display_name}</ThemedText>
+              <Pressable disabled={!voucher} onPress={() => voucher && router.push({ pathname: '/user/[id]', params: { id: voucher.id } })}>
+                <ThemedText type="smallBold">{voucher?.display_name ?? '[deleted]'}</ThemedText>
               </Pressable>
               {v.project && v.role ? (
                 <Pressable onPress={() => router.push({ pathname: '/project/[id]', params: { id: v.project!.id } })}>

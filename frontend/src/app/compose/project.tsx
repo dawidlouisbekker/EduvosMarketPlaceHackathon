@@ -1,31 +1,20 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
-import { TextField, VisibilityField } from '@/components/form';
+import { DeadlineField, inDays, TextField, VisibilityField } from '@/components/form';
 import { ScrollScreen } from '@/components/scroll-screen';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
-import { createProject, getIdea } from '@/mock/api';
-import type { Visibility } from '@/types/models';
-
-const DAY = 86_400_000;
-const DEADLINES = [
-  { label: 'No deadline', days: null },
-  { label: '2 weeks', days: 14 },
-  { label: '1 month', days: 30 },
-  { label: '3 months', days: 90 },
-  { label: '6 months', days: 180 },
-] as const;
+import { createProject, getIdea } from '@/api';
+import { Visibility } from '@/types/models';
 
 export default function ComposeProject() {
   const { ideaId } = useLocalSearchParams<{ ideaId?: string }>();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState<Visibility>('public');
-  const [days, setDays] = useState<number | null>(30);
+  const [visibility, setVisibility] = useState<Visibility>(Visibility.PUBLIC);
+  const [deadline, setDeadline] = useState<string | null>(() => inDays(30));
   const [ideaTitle, setIdeaTitle] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -47,8 +36,8 @@ export default function ComposeProject() {
       name: name.trim(),
       description: description.trim(),
       visibility,
-      deadline: days ? new Date(Date.now() + days * DAY).toISOString() : null,
-      idea_id: ideaId ?? null,
+      deadline: deadline ?? undefined,
+      idea_id: ideaId,
     });
     router.replace({ pathname: '/project/[id]', params: { id } });
   };
@@ -65,14 +54,7 @@ export default function ComposeProject() {
         onChangeText={setDescription}
         multiline
       />
-      <View style={styles.block}>
-        <ThemedText type="smallBold">Deadline</ThemedText>
-        <View style={styles.chips}>
-          {DEADLINES.map((d) => (
-            <Chip key={d.label} label={d.label} selected={days === d.days} onPress={() => setDays(d.days)} />
-          ))}
-        </View>
-      </View>
+      <DeadlineField optional preset="1 month" value={deadline} onChange={setDeadline} />
       <VisibilityField
         value={visibility}
         onChange={setVisibility}
@@ -85,8 +67,3 @@ export default function ComposeProject() {
     </ScrollScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  block: { gap: Spacing.two },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
-});

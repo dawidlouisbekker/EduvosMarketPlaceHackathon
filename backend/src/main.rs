@@ -1,7 +1,9 @@
+mod api;
 mod auth;
 mod config;
 mod error;
 mod models;
+mod pb;
 mod util;
 
 use std::sync::Arc;
@@ -70,7 +72,8 @@ async fn main() {
 
     let api = Router::new()
         .route("/health", get(health))
-        .merge(auth::routes::router());
+        .merge(auth::routes::router())
+        .merge(api::router());
 
     let app = Router::new()
         .nest("/api", api)

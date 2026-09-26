@@ -1,6 +1,7 @@
+import { useSession } from '@/auth/session';
 import { ProfileView } from '@/components/profile-view';
-import { MY_ID } from '@/mock/api';
 
 export default function MyProfileScreen() {
-  return <ProfileView userId={MY_ID} tab />;
+  const { user } = useSession();
+  return user ? <ProfileView userId={user.id} tab /> : null;
 }
