@@ -1,0 +1,50 @@
+# Reverse proxy in front of everything: the browser only ever talks to this origin (PUBLIC_BASE_URL),
+# so the session cookie and API calls are same-origin.
+#
+#   /api/*       -> backend
+#   /<bucket>/*  -> MinIO (path-style S3 URLs; Host is passed through so presigned URLs stay valid)
+#   everything else -> the frontend
+#
+# Environment (set in docker-compose.apps.yml):
+#   SITE_ADDRESS       ":8080" in development (plain http). In production set it to the domain, e.g.
+#                      "market.eduvos.com": Caddy then gets and renews a Let's Encrypt certificate,
+#                      which needs ports 80 and 443 published and the domain pointing at this host.
+#   BACKEND_UPSTREAM   host:port of the backend
+#   S3_BUCKET          MinIO bucket served under /<bucket>
+#   FRONTEND_MODE      "dev": proxy to the Expo dev server (FRONTEND_UPSTREAM), including its websocket.
+#                      "static": serve the output of `npx expo export` mounted at /srv.
+#   FRONTEND_UPSTREAM  host:port of the Expo dev server (dev mode only)
+
+(frontend-dev) {
+	reverse_proxy {$FRONTEND_UPSTREAM:host.docker.internal:8081}
+}
+
+(frontend-static) {
+	root * /srv
+	# Static export: /ideas -> ideas.html, unknown paths -> the app shell.
+	try_files {path} {path}.html /index.html
+	file_server
+}
+
+{$SITE_ADDRESS::8080} {
+	encode zstd gzip
+
+	@api path /api /api/*
+	handle @api {
+		reverse_proxy {$BACKEND_UPSTREAM:backend:8090}
+	}
+
+	@media path /{$S3_BUCKET:media} /{$S3_BUCKET:media}/*
+	handle @media {
+		reverse_proxy minio:9000
+	}
+
+	handle {
+		import frontend-{$FRONTEND_MODE:dev}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

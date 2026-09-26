@@ -21,22 +21,36 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
 
   reverse-proxy:
-    build: ./reverse-proxy
+    image: caddy:2-alpine
     container_name: market-proxy
     restart: unless-stopped
-    init: true
     depends_on:
       - backend
-      - minio
+    # Routing lives in caddy/Caddyfile.
     environment:
-      LISTEN: 0.0.0.0:8080
+      SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-backend:8090}
+      S3_BUCKET: ${S3_BUCKET:-media}
+      FRONTEND_MODE: ${FRONTEND_MODE:-dev}
       # The Expo dev server runs on the host (so phones can reach Metro). With Docker Desktop +
       # WSL, host.docker.internal is the Windows host, so set FRONTEND_UPSTREAM to an address
       # where the WSL-side Expo server is reachable (e.g. the WSL eth0 IP) if you get 502s on /.
-      ROUTES: /api=${BACKEND_UPSTREAM:-backend:8090},/${S3_BUCKET:-media}=minio:9000,/=${FRONTEND_UPSTREAM:-host.docker.internal:8081}
+      FRONTEND_UPSTREAM: ${FRONTEND_UPSTREAM:-host.docker.internal:8081}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${PROXY_PORT:-8080}:8080"
+      # Production (SITE_ADDRESS=<domain>) serves https on 80/443 instead:
+      # - "80:80"
+      # - "443:443"
+      # - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # certificates; must persist or Let's Encrypt rate-limits you
+      - caddy-config:/config
+      # FRONTEND_MODE=static: serve the web build (`npx expo export` in frontend/).
+      # - ./frontend/dist:/srv:ro
 
-
+volumes:
+  caddy-data:
+  caddy-config:

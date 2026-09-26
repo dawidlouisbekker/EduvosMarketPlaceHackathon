@@ -9,6 +9,16 @@
 
 CREATE TYPE session_kind AS ENUM ('web', 'app');
 CREATE TYPE visibility AS ENUM ('public', 'private');   -- used by ideas and projects
+CREATE TYPE notification_kind AS ENUM (
+    'project_invite',       -- project_id: the owner invited you
+    'join_request',         -- project_id: actor wants to join your project
+    'request_accepted',     -- project_id: your join request was accepted
+    'idea_comment',         -- idea_id + comment_id: someone commented on your idea
+    'comment_reply',        -- idea_id + comment_id: someone replied to your comment
+    'skill_vouch',          -- actor vouched for one of your skills
+    'idea_shared',          -- idea_id: a private idea was shared with you
+    'entrepreneur_vouch'    -- project_id: an admin vouched that you are entrepreneurial
+);
 
 
 -- ---------------------------------------------------------------- skills
@@ -25,7 +35,9 @@ CREATE TABLE users (
     tenant_id      uuid NOT NULL,
     email          varchar(320) NOT NULL,          -- RFC 5321 maximum
     display_name   varchar(256) NOT NULL,          -- Entra ID maximum
-    is_admin       boolean NOT NULL DEFAULT false,
+    bio            varchar(256) NOT NULL DEFAULT '',   -- short headline shown on the profile
+    avatar_url     varchar(2048),                  -- NULL = app shows initials. From MS Graph photo or a MinIO upload
+    is_admin      boolean NOT NULL DEFAULT false,
     created_at     timestamptz NOT NULL DEFAULT now(),
     last_login_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -40,23 +52,6 @@ CREATE TABLE user_skills (
 /*
  skills that user claims they have.
 */
-
-CREATE TABLE skill_vouches (
-    user_id     uuid NOT NULL,                     -- the user being vouched for
-    skill       varchar(128) NOT NULL,             -- must be a skill user_id claims (user_skills)
-    voucher_id  uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,   -- the user vouching
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, skill, voucher_id),
-    FOREIGN KEY (user_id, skill) REFERENCES user_skills (user_id, skill) ON DELETE CASCADE,
-    CHECK (user_id <> voucher_id)                  -- no vouching for yourself
-);
-/*
-    users can click on a skill and vouch that the user has this skill.
-    used to show how many people vouch for a persons skill on the user's public profile.
-    Removing a skill from user_skills removes its vouches.
-*/
--- "Vouches I have given"
-CREATE INDEX skill_vouches_voucher_idx ON skill_vouches (voucher_id);
 
 -- ---------------------------------------------------------------- identity end
 
@@ -108,6 +103,7 @@ CREATE INDEX user_prospects_prospect_idx ON user_prospects (prospect_id);
 -- ---------------------------------------------------------------- projects
 
 -- Created either directly, or from an idea (the idea is then linked via ideas.project_id).
+-- The backend also inserts the owner into project_participants, so owners can hold roles (and be vouched for in them).
 CREATE TABLE projects (
     id            uuid PRIMARY KEY,
     owner_id      uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -121,6 +117,8 @@ CREATE TABLE projects (
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX projects_owner_idx ON projects (owner_id);
+-- Public feed, newest first.
+CREATE INDEX projects_public_idx ON projects (created_at DESC) WHERE visibility = 'public';
 
 CREATE TABLE project_media (
     id            uuid PRIMARY KEY,
@@ -254,6 +252,36 @@ CREATE TABLE user_entrepreneurial_vouches (
     Only admins can vouch that a user is entrepreneurial.
 */
 
+CREATE TABLE skill_vouches (
+    user_id     uuid NOT NULL,                     -- the user being vouched for
+    skill       varchar(128) NOT NULL,             -- must be a skill user_id claims (user_skills)
+    voucher_id  uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,   -- the user vouching
+    project_id  uuid,                              -- project where the voucher saw the skill. Required on insert (backend)
+    role_id     uuid,                              -- role user_id held in project_id. NULL = assignment/project later removed
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, skill, voucher_id),
+    FOREIGN KEY (user_id, skill) REFERENCES user_skills (user_id, skill) ON DELETE CASCADE,
+    -- The role must be one user_id actually held in that project.
+    FOREIGN KEY (project_id, user_id, role_id)
+        REFERENCES project_participant_roles (project_id, user_id, role_id)
+        ON DELETE SET NULL (project_id, role_id),
+    CHECK ((project_id IS NULL) = (role_id IS NULL)),
+    CHECK (user_id <> voucher_id)                  -- no vouching for yourself
+);
+/*
+    A user vouches that another user has a skill, based on the role that user played in a project.
+    The backend requires project_id and role_id on insert, and only accepts the vouch when the voucher
+    is the project's owner or a participant (a teammate), or an admin.
+    If the role assignment or the project is removed later, project_id and role_id become NULL:
+    the vouch still counts, it just no longer points at a role.
+    Removing a skill from user_skills removes its vouches.
+    Used to show who vouched for each skill, and in what role, on the user's profile.
+*/
+-- "Vouches I have given"
+CREATE INDEX skill_vouches_voucher_idx ON skill_vouches (voucher_id);
+-- Finds the vouches to clear when a role assignment is deleted.
+CREATE INDEX skill_vouches_role_idx ON skill_vouches (project_id, user_id, role_id) WHERE project_id IS NOT NULL;
+
 -- ---------------------------------------------------------------- ideas
 
 CREATE TABLE idea_comment_types (
@@ -272,12 +300,15 @@ CREATE TABLE ideas (
     -- Set when the idea became (or was attached to) a project. Deleting the project keeps
     -- the idea and just unlinks it.
     project_id    uuid REFERENCES projects (id) ON DELETE SET NULL,
+    vote_count    integer NOT NULL DEFAULT 0,     -- cached count of idea_votes, for sorting
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now(),
     UNIQUE (id, user_id)    -- target of idea_shares' (idea_id, owner_id) foreign key
 );
 -- Public feed, newest first.
 CREATE INDEX ideas_public_idx ON ideas (created_at DESC) WHERE visibility = 'public';
+-- Public feed, most upvoted first.
+CREATE INDEX ideas_public_top_idx ON ideas (vote_count DESC, created_at DESC) WHERE visibility = 'public';
 CREATE INDEX ideas_user_idx ON ideas (user_id);
 -- "Which ideas belong to this project?"
 CREATE INDEX ideas_project_idx ON ideas (project_id) WHERE project_id IS NOT NULL;
@@ -296,6 +327,16 @@ CREATE TABLE idea_shares (
 );
 -- "Ideas shared with me".
 CREATE INDEX idea_shares_user_idx ON idea_shares (user_id);
+
+CREATE TABLE idea_votes (
+    idea_id     uuid NOT NULL REFERENCES ideas (id) ON DELETE CASCADE,
+    user_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (idea_id, user_id)
+);
+-- One upvote per user per idea. Keep ideas.vote_count in sync in the same transaction.
+-- "Ideas I upvoted"
+CREATE INDEX idea_votes_user_idx ON idea_votes (user_id);
 
 -- Reddit-style threaded comments: parent_id points at the comment being replied to
 -- (NULL = top-level). Deleted comments are soft-deleted so their replies keep their place;
@@ -340,10 +381,26 @@ CREATE TABLE problems (
     user_id       uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     title         varchar(128) NOT NULL,
     description   varchar(1024) NOT NULL,
+    vote_count    integer NOT NULL DEFAULT 0,     -- cached count of problem_votes ("me too"), for sorting
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX problems_user_idx ON problems (user_id);
+-- Feed, newest first.
+CREATE INDEX problems_new_idx ON problems (created_at DESC);
+-- Feed, most "me too" votes first.
+CREATE INDEX problems_top_idx ON problems (vote_count DESC, created_at DESC);
+
+CREATE TABLE problem_votes (
+    problem_id  uuid NOT NULL REFERENCES problems (id) ON DELETE CASCADE,
+    user_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (problem_id, user_id)
+);
+-- "Me too" votes: users saying they have this problem as well.
+-- Keep problems.vote_count in sync in the same transaction.
+-- "Problems I voted on"
+CREATE INDEX problem_votes_user_idx ON problem_votes (user_id);
 
 CREATE TABLE idea_problem_links (
     problem_id  uuid NOT NULL REFERENCES problems (id) ON DELETE CASCADE,
@@ -352,3 +409,27 @@ CREATE TABLE idea_problem_links (
     PRIMARY KEY (problem_id, idea_id)
 );
 CREATE INDEX idea_problem_links_idea_idx ON idea_problem_links (idea_id);
+
+-- ---------------------------------------------------------------- notifications
+
+CREATE TABLE notifications (
+    id          uuid PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,      -- recipient
+    actor_id    uuid REFERENCES users (id) ON DELETE SET NULL,              -- who caused it. NULL = account deleted
+    kind        notification_kind NOT NULL,
+    problem_id  uuid REFERENCES problems (id) ON DELETE CASCADE,
+    idea_id     uuid REFERENCES ideas (id) ON DELETE CASCADE,
+    project_id  uuid REFERENCES projects (id) ON DELETE CASCADE,
+    comment_id  uuid REFERENCES idea_comments (id) ON DELETE CASCADE,
+    read_at     timestamptz,                                                -- NULL = unread
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+/*
+ The user's inbox. Written by the backend in the same transaction as the event that causes it.
+ Which of problem_id / idea_id / project_id / comment_id is set depends on kind (see notification_kind).
+ Deleting the linked entity removes the notification.
+*/
+-- Inbox, newest first.
+CREATE INDEX notifications_user_idx ON notifications (user_id, created_at DESC);
+-- Unread badge count.
+CREATE INDEX notifications_unread_idx ON notifications (user_id) WHERE read_at IS NULL;

@@ -25,6 +25,7 @@ P(has skill) = α / (α + β)
 ```
 
 - Teammates = users sharing a project in `project_participants` with the user. Their vouches count the most.
+- Every vouch names the project and role (`skill_vouches.project_id`/`role_id`) it is based on, so teammate vouches are identified directly, not inferred. Admin vouches can be weighted separately.
 - A user with an admin entrepreneurship vouch (`user_entrepreneurial_vouches`) starts from a slightly higher prior.
 - Rank and show badges by the lower end of the credible interval, not the mean, so 1 vouch can't beat 20.
 - Update in the same transaction as the vouch, like `idea_comments.score`. Possibly cache `alpha`/`beta` on `user_skills`.
