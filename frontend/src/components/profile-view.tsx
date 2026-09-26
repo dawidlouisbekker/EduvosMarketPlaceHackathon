@@ -81,6 +81,12 @@ function ProfileHeader({ profile }: { profile: Profile }) {
         <ThemedText style={styles.name}>{profile.display_name}</ThemedText>
         {profile.is_entrepreneur && <Icon name="verified" size={20} color={theme.warning} />}
       </View>
+      {/* Only on your own profile: the email comes from your session, not from the public profile. */}
+      {profile.is_self && user?.email && (
+        <ThemedText type="small" themeColor="textSecondary" style={styles.center} selectable>
+          {user.email}
+        </ThemedText>
+      )}
 
       {editing ? (
         <View style={styles.editBio}>
