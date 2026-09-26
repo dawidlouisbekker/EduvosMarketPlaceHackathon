@@ -1,11 +1,11 @@
 
 services:
-  market-postgres:
+  incubator-postgres:
     image: postgres:latest
-    container_name: market-postgres
+    container_name: incubator-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-selfstudy}
+      POSTGRES_DB: ${POSTGRES_DB:-incubator}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
@@ -13,7 +13,7 @@ services:
     volumes:
       # Postgres 18+ images store data under /var/lib/postgresql/<major>/docker,
       # so mount the parent directory rather than /var/lib/postgresql/data.
-      - market-postgres-data:/var/lib/postgresql
+      - incubator-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -24,8 +24,7 @@ services:
     image: caddy:2-alpine
     container_name: market-proxy
     restart: unless-stopped
-    depends_on:
-      - backend
+
     # Routing lives in caddy/Caddyfile.
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:8080}
@@ -51,7 +50,21 @@ services:
       # FRONTEND_MODE=static: serve the web build (`npx expo export` in frontend/).
       # - ./frontend/dist:/srv:ro
 
+  incubator-cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: incubator-tunnel
+    restart: unless-stopped
+    # cloudflared reads the token from TUNNEL_TOKEN, so it never appears in the process args.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    # In the Cloudflare dashboard, point the tunnel's public hostname at http://reverse-proxy:8080.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - reverse-proxy
+
 volumes:
-  market-postgres-data:
+  incubator-postgres-data:
   caddy-data:
   caddy-config:
