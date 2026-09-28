@@ -10,8 +10,8 @@ import { Stat, VoteButton } from './vote-button';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { toggleIdeaVote } from '@/mock/api';
-import type { FeedIdea } from '@/types/models';
+import { toggleIdeaVote } from '@/api';
+import { Visibility, type FeedIdea } from '@/types/models';
 
 export function IdeaCard({ idea }: { idea: FeedIdea }) {
   const theme = useTheme();
@@ -20,7 +20,7 @@ export function IdeaCard({ idea }: { idea: FeedIdea }) {
       <AuthorRow
         user={idea.author}
         createdAt={idea.created_at}
-        right={idea.visibility === 'private' && <Icon name="lock" size={14} color={theme.textSecondary} />}
+        right={idea.visibility === Visibility.PRIVATE && <Icon name="lock" size={14} color={theme.textSecondary} />}
       />
       <View style={styles.body}>
         <ThemedText type="default" style={styles.title}>
@@ -51,7 +51,7 @@ export function IdeaCard({ idea }: { idea: FeedIdea }) {
         </View>
       )}
       <View style={styles.actions}>
-        <VoteButton count={idea.vote_count} active={idea.viewer_voted} onToggle={() => toggleIdeaVote(idea.id)} />
+        <VoteButton count={idea.vote_count} active={idea.viewer_voted} onToggle={() => toggleIdeaVote(idea.id, idea.viewer_voted)} />
         <Stat icon="comment" value={idea.comment_count} />
       </View>
     </Card>

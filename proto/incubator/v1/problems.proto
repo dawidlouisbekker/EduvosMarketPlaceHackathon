@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+import "incubator/v1/common.proto";
+import "incubator/v1/ideas.proto";
+
+service ProblemService {
+  // GET /problems?sort=new|top&cursor=&limit=
+  rpc ListProblems(ListProblemsRequest) returns (ListProblemsResponse);
+
+  // GET /problems/search?q=
+  // Up to 8 problems whose title contains q (case-insensitive). Used by the idea composer.
+  rpc SearchProblems(SearchProblemsRequest) returns (SearchProblemsResponse);
+
+  // GET /problems/{id}
+  // The problem and the ideas linked to it that the viewer may see. 404 when it doesn't exist.
+  rpc GetProblem(GetProblemRequest) returns (GetProblemResponse);
+
+  // POST /problems
+  rpc CreateProblem(CreateProblemRequest) returns (CreateProblemResponse);
+
+  // PUT /problems/{id}/vote -> 204 (idempotent "me too")
+  rpc VoteProblem(VoteProblemRequest) returns (VoteProblemResponse);
+
+  // DELETE /problems/{id}/vote -> 204 (idempotent)
+  rpc UnvoteProblem(UnvoteProblemRequest) returns (UnvoteProblemResponse);
+}
+
+// A problem as shown in feeds and lists.
+message Problem {
+  string id = 1;
+  string user_id = 2;
+  // max 128
+  string title = 3;
+  // max 1024
+  string description = 4;
+  // "Me too" votes.
+  int32 vote_count = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  UserSummary author = 8;
+  bool viewer_voted = 9;
+  // Linked ideas the viewer may see.
+  int32 idea_count = 10;
+}
+
+message ListProblemsRequest {
+  FeedSort sort = 1;
+  // Opaque; from the previous page's next_cursor.
+  optional string cursor = 2;
+  // 1..50, default 8.
+  int32 limit = 3;
+}
+
+message ListProblemsResponse {
+  repeated Problem items = 1;
+  // Absent on the last page.
+  optional string next_cursor = 2;
+}
+
+message SearchProblemsRequest {
+  // Empty returns the newest problems.
+  string q = 1;
+}
+
+message SearchProblemsResponse {
+  repeated ProblemRef problems = 1;
+}
+
+message GetProblemRequest {
+  string id = 1;
+}
+
+message GetProblemResponse {
+  Problem problem = 1;
+  repeated Idea ideas = 2;
+}
+
+message CreateProblemRequest {
+  // 1..128
+  string title = 1;
+  // 1..1024
+  string description = 2;
+}
+
+message CreateProblemResponse {
+  string id = 1;
+}
+
+message VoteProblemRequest {
+  string id = 1;
+}
+
+message VoteProblemResponse {}
+
+message UnvoteProblemRequest {
+  string id = 1;
+}
+
+message UnvoteProblemResponse {}

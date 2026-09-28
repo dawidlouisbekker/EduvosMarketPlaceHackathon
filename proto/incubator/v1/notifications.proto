@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+import "incubator/v1/common.proto";
+
+service NotificationService {
+  // GET /notifications
+  // The viewer's inbox, newest first.
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+
+  // GET /notifications/unread-count
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+
+  // POST /notifications/read-all -> 204
+  rpc MarkAllRead(MarkAllReadRequest) returns (MarkAllReadResponse);
+}
+
+enum NotificationKind {
+  NOTIFICATION_KIND_UNSPECIFIED = 0;
+  // project: the owner invited you.
+  NOTIFICATION_KIND_PROJECT_INVITE = 1;
+  // project: actor wants to join your project.
+  NOTIFICATION_KIND_JOIN_REQUEST = 2;
+  // project: your join request was accepted.
+  NOTIFICATION_KIND_REQUEST_ACCEPTED = 3;
+  // idea + comment: someone commented on your idea.
+  NOTIFICATION_KIND_IDEA_COMMENT = 4;
+  // idea + comment: someone replied to your comment.
+  NOTIFICATION_KIND_COMMENT_REPLY = 5;
+  // actor vouched for one of your skills.
+  NOTIFICATION_KIND_SKILL_VOUCH = 6;
+  // idea: a private idea was shared with you.
+  NOTIFICATION_KIND_IDEA_SHARED = 7;
+  // project: an admin vouched that you are entrepreneurial.
+  NOTIFICATION_KIND_ENTREPRENEUR_VOUCH = 8;
+}
+
+message Notification {
+  string id = 1;
+  NotificationKind kind = 2;
+  // Who caused it. Absent when their account was deleted.
+  UserSummary actor = 3;
+  // Which of problem / idea / project / comment is set depends on kind.
+  ProblemRef problem = 4;
+  IdeaRef idea = 5;
+  ProjectRef project = 6;
+  CommentRef comment = 7;
+  // Absent: unread.
+  google.protobuf.Timestamp read_at = 8;
+  google.protobuf.Timestamp created_at = 9;
+  // For project_invite / join_request: whether it is still pending.
+  bool actionable = 10;
+}
+
+message ListNotificationsRequest {}
+
+message ListNotificationsResponse {
+  repeated Notification notifications = 1;
+}
+
+message GetUnreadCountRequest {}
+
+message GetUnreadCountResponse {
+  int32 count = 1;
+}
+
+message MarkAllReadRequest {}
+
+message MarkAllReadResponse {}

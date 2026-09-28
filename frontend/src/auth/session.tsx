@@ -4,14 +4,11 @@ import * as WebBrowser from 'expo-web-browser';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 
-import { API_URL, ApiError, apiFetch, setToken } from './api';
+import { API_URL, ApiError, protoFetch, query, setToken } from './api';
 
-export type Me = {
-  id: string;
-  email: string;
-  display_name: string;
-  is_admin: boolean;
-};
+import { ExchangeCodeRequest, ExchangeCodeResponse, GetMeResponse, type LoginRequest } from '@/gen/incubator/v1/auth';
+
+export type Me = GetMeResponse;
 
 type Session = {
   user: Me | null;
@@ -42,13 +39,18 @@ async function challengeFor(verifier: string): Promise<string> {
   return base64url(digest);
 }
 
+/** URL of GET /auth/login (a browser navigation, so its LoginRequest goes in the query string). */
+function loginUrl(params: LoginRequest): string {
+  return `${API_URL}/api/auth/login${query({ ...params })}`;
+}
+
 /** Web: once per browser session, try a silent sign-in using an existing Microsoft session. */
 function trySilentSso(): boolean {
   const params = new URLSearchParams(window.location.search);
   if (params.has('sso') || params.has('auth_error') || sessionStorage.getItem(SSO_ATTEMPTED)) return false;
   sessionStorage.setItem(SSO_ATTEMPTED, '1');
   const returnTo = window.location.pathname + window.location.search;
-  window.location.assign(`/api/auth/login?prompt=none&return_to=${encodeURIComponent(returnTo)}`);
+  window.location.assign(loginUrl({ prompt: 'none', return_to: returnTo }));
   return true;
 }
 
@@ -63,7 +65,7 @@ type LoadResult = { user: Me | null; error: string | null; redirecting: boolean 
 
 async function loadSession(): Promise<LoadResult> {
   try {
-    return { user: await apiFetch<Me>('/me'), error: null, redirecting: false };
+    return { user: await protoFetch('GET', '/me', { response: GetMeResponse }), error: null, redirecting: false };
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       return { user: null, error: null, redirecting: Platform.OS === 'web' && trySilentSso() };
@@ -94,18 +96,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     if (Platform.OS === 'web') {
       const returnTo = window.location.pathname;
-      window.location.assign(`/api/auth/login?return_to=${encodeURIComponent(returnTo)}`);
+      window.location.assign(loginUrl({ return_to: returnTo }));
       return;
     }
     // Native: backend-driven Entra login in the system browser (shares its Microsoft session),
     // handed back to the app as a one-time code bound to our own PKCE verifier.
     const verifier = randomVerifier();
     const redirectUri = Linking.createURL('auth');
-    const loginUrl =
-      `${API_URL}/api/auth/login?client=app` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&code_challenge=${await challengeFor(verifier)}`;
-    const result = await WebBrowser.openAuthSessionAsync(loginUrl, redirectUri, { preferEphemeralSession: false });
+    const url = loginUrl({ client: 'app', redirect_uri: redirectUri, code_challenge: await challengeFor(verifier) });
+    const result = await WebBrowser.openAuthSessionAsync(url, redirectUri, { preferEphemeralSession: false });
     if (result.type !== 'success') return;
 
     const { queryParams } = Linking.parse(result.url);
@@ -115,9 +114,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const { token } = await apiFetch<{ token: string }>('/auth/app/exchange', {
-        method: 'POST',
-        body: JSON.stringify({ code, code_verifier: verifier }),
+      const { token } = await protoFetch('POST', '/auth/app/exchange', {
+        body: [ExchangeCodeRequest, { code, code_verifier: verifier }],
+        response: ExchangeCodeResponse,
       });
       await setToken(token);
       await refresh();
@@ -127,7 +126,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const signOut = useCallback(async () => {
-    await apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+    await protoFetch('POST', '/auth/logout').catch(() => {});
     await setToken(null);
     setUser(null);
   }, []);

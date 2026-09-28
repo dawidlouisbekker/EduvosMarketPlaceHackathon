@@ -15,13 +15,10 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useQuery } from '@/hooks/use-query';
 import { useTheme } from '@/hooks/use-theme';
-import { getProject, respondToInvite, respondToJoinRequest, toggleJoinRequest, toggleTask } from '@/mock/api';
-import type { ProjectDetail } from '@/types/models';
+import { getProject, respondToInvite, respondToJoinRequest, setTaskCompleted, toggleJoinRequest } from '@/api';
+import { ViewerRelation, Visibility, type ProjectDetail } from '@/types/models';
 import { shortDate, timeUntil } from '@/utils/time';
-
-function youtubeId(url: string) {
-  return url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1] ?? null;
-}
+import { youtubeId, youtubeThumbnail } from '@/utils/youtube';
 
 export default function ProjectScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -43,7 +40,8 @@ export default function ProjectScreen() {
   const due = project.deadline ? timeUntil(project.deadline) : null;
   const categoryName = new Map(project.categories.map((c) => [c.id, c.name]));
   const roleName = new Map(project.roles.map((r) => [r.id, r.name]));
-  const canEditTasks = project.viewer_relation === 'owner' || project.viewer_relation === 'participant';
+  const canEditTasks =
+    project.viewer_relation === ViewerRelation.OWNER || project.viewer_relation === ViewerRelation.PARTICIPANT;
 
   return (
     <ScrollScreen>
@@ -53,8 +51,8 @@ export default function ProjectScreen() {
           createdAt={project.created_at}
           right={
             <Chip
-              icon={project.visibility === 'private' ? 'lock' : 'public'}
-              label={project.visibility === 'private' ? 'Private' : 'Public'}
+              icon={project.visibility === Visibility.PRIVATE ? 'lock' : 'public'}
+              label={project.visibility === Visibility.PRIVATE ? 'Private' : 'Public'}
             />
           }
         />
@@ -75,14 +73,14 @@ export default function ProjectScreen() {
         <JoinAction project={project} />
       </View>
 
-      {project.media.length > 0 && (
+      {project.show_media && project.media.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.media}>
           {project.media.map((m) => {
             const vid = youtubeId(m.url);
             return (
               <ExternalLink key={m.id} href={m.url as `https://${string}`} asChild>
                 <Pressable style={styles.thumbWrap}>
-                  {vid && <Image source={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} style={styles.thumb} contentFit="cover" />}
+                  {vid && <Image source={youtubeThumbnail(vid)} style={styles.thumb} contentFit="cover" />}
                   <View style={styles.play}>
                     <Icon name="play" size={36} color="#fff" />
                   </View>
@@ -128,7 +126,7 @@ export default function ProjectScreen() {
               return (
                 <View key={t.id} style={styles.task}>
                   <View style={styles.rail}>
-                    <Pressable disabled={!canEditTasks} onPress={() => toggleTask(t.id)} hitSlop={8}>
+                    <Pressable disabled={!canEditTasks} onPress={() => setTaskCompleted(project.id, t.id, !t.completed)} hitSlop={8}>
                       <Icon name={t.completed ? 'check' : 'circle'} size={22} color={t.completed ? theme.success : theme.textSecondary} />
                     </Pressable>
                     {i < project.tasks.length - 1 && <View style={[styles.line, { backgroundColor: theme.border }]} />}
@@ -159,17 +157,18 @@ export default function ProjectScreen() {
       </Section>
 
       <Section title={`Team · ${project.team.length}`}>
-        {project.team.map((m, i) => (
+        {project.team.map(({ user, role_ids }, i) => (
           <Pressable
-            key={m.user.id}
-            onPress={() => router.push({ pathname: '/user/[id]', params: { id: m.user.id } })}
+            key={user?.id ?? i}
+            disabled={!user}
+            onPress={() => user && router.push({ pathname: '/user/[id]', params: { id: user.id } })}
             style={styles.personRow}>
-            <Avatar user={m.user} size={36} />
+            <Avatar user={user} size={36} />
             <View style={styles.flex}>
-              <ThemedText type="smallBold">{m.user.display_name}</ThemedText>
+              <ThemedText type="smallBold">{user?.display_name ?? '[deleted]'}</ThemedText>
               <View style={styles.metaRow}>
                 {i === 0 && <Chip label="Owner" color={theme.warning} />}
-                {m.role_ids.map((r) => (
+                {role_ids.map((r) => (
                   <Chip key={r} label={roleName.get(r) ?? '?'} selected />
                 ))}
               </View>
@@ -205,25 +204,27 @@ export default function ProjectScreen() {
 /** The main call to action, depending on how the viewer relates to the project. */
 function JoinAction({ project }: { project: ProjectDetail }) {
   switch (project.viewer_relation) {
-    case 'owner':
+    case ViewerRelation.OWNER:
       return (
-        <ThemedText type="small" themeColor="textSecondary">
-          You own this project. Task, role and invite editing comes with the API.
-        </ThemedText>
+        <Button
+          icon="edit"
+          title="Edit project"
+          onPress={() => router.push({ pathname: '/edit/project/[id]', params: { id: project.id } })}
+        />
       );
-    case 'participant':
+    case ViewerRelation.PARTICIPANT:
       return <Chip icon="check" label="You are on this team" selected />;
-    case 'invited':
+    case ViewerRelation.INVITED:
       return (
         <View style={styles.metaRow}>
           <Button title="Accept invite" onPress={() => respondToInvite(project.id, true)} />
           <Button variant="secondary" title="Decline" onPress={() => respondToInvite(project.id, false)} />
         </View>
       );
-    case 'requested':
-      return <Button variant="secondary" icon="clock" title="Request sent · cancel" onPress={() => toggleJoinRequest(project.id)} />;
-    case 'none':
-      return <Button icon="personAdd" title="Request to join" onPress={() => toggleJoinRequest(project.id)} />;
+    case ViewerRelation.REQUESTED:
+      return <Button variant="secondary" icon="clock" title="Request sent · cancel" onPress={() => toggleJoinRequest(project.id, true)} />;
+    default:
+      return <Button icon="personAdd" title="Request to join" onPress={() => toggleJoinRequest(project.id, false)} />;
   }
 }
 

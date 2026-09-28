@@ -1,0 +1,69 @@
+// Shared messages. HTTP conventions are described in docs/adr/0001-protobuf-api-contracts.md.
+syntax = "proto3";
+
+package incubator.v1;
+
+// Body of every non-2xx response.
+message Error {
+  // Machine readable, e.g. "unauthorized", "not_found", "bad_request".
+  string code = 1;
+  // Human readable.
+  string message = 2;
+}
+
+// Who can see an idea or project.
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  // Everyone signed in.
+  VISIBILITY_PUBLIC = 1;
+  // Idea: the owner and users it is shared with. Project: the owner and participants.
+  VISIBILITY_PRIVATE = 2;
+}
+
+// Feed order for problems and ideas. In a query string: sort=new|top.
+enum FeedSort {
+  FEED_SORT_UNSPECIFIED = 0;
+  // Newest first (the default).
+  FEED_SORT_NEW = 1;
+  // Most votes first.
+  FEED_SORT_TOP = 2;
+}
+
+// What is shown next to anything a user posted.
+message UserSummary {
+  string id = 1;
+  // max 256
+  string display_name = 2;
+  // Absent: the app shows initials.
+  optional string avatar_url = 3;
+  // max 256
+  string bio = 4;
+  // Has at least one entrepreneurial vouch from an admin.
+  bool is_entrepreneur = 5;
+}
+
+message ProblemRef {
+  string id = 1;
+  string title = 2;
+}
+
+message IdeaRef {
+  string id = 1;
+  string title = 2;
+}
+
+message ProjectRef {
+  string id = 1;
+  string name = 2;
+}
+
+message RoleRef {
+  string id = 1;
+  string name = 2;
+}
+
+message CommentRef {
+  string id = 1;
+  // First 80 characters of the comment.
+  string excerpt = 2;
+}

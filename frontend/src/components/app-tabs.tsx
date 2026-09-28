@@ -1,13 +1,12 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
+import { getUnreadCount } from '@/api';
+import { useQuery } from '@/hooks/use-query';
 import { useTheme } from '@/hooks/use-theme';
-import { useStoreVersion } from '@/hooks/use-query';
-import { getUnreadCountSync } from '@/mock/api';
 
 export default function AppTabs() {
   const colors = useTheme();
-  useStoreVersion();
-  const unread = getUnreadCountSync();
+  const unread = useQuery('unread-count', getUnreadCount).data ?? 0;
 
   return (
     <NativeTabs

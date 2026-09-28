@@ -1,11 +1,13 @@
-use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use serde_json::json;
+use prost::Message;
+
+use crate::api::proto::PROTOBUF;
+use crate::pb;
 
 pub type AppResult<T> = Result<T, AppError>;
 
-/// JSON error body: `{ "error": "<code>", "message": "<human readable>" }`.
+/// Error response. The body is an `incubator.v1.Error` protobuf message (see docs/adr/0001-protobuf-api-contracts.md).
 #[derive(Debug)]
 pub struct AppError {
     pub status: StatusCode,
@@ -46,7 +48,8 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.code, "message": self.message }))).into_response()
+        let body = pb::Error { code: self.code.to_owned(), message: self.message }.encode_to_vec();
+        (self.status, [(header::CONTENT_TYPE, PROTOBUF)], body).into_response()
     }
 }
 
@@ -56,6 +59,9 @@ impl From<sqlx::Error> for AppError {
             sqlx::Error::RowNotFound => Self::not_found(),
             sqlx::Error::Database(db) if db.is_unique_violation() => {
                 Self::conflict("already_exists", "a record with these details already exists")
+            }
+            sqlx::Error::Database(db) if db.is_foreign_key_violation() => {
+                Self::bad_request("a referenced record does not exist")
             }
             _ => Self::internal(err),
         }

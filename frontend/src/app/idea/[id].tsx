@@ -15,8 +15,8 @@ import { Stat, VoteButton } from '@/components/vote-button';
 import { Spacing } from '@/constants/theme';
 import { useQuery } from '@/hooks/use-query';
 import { useTheme } from '@/hooks/use-theme';
-import { getCommentTypes, getComments, getIdea, getMyProspects, setIdeaShares, toggleIdeaVote } from '@/mock/api';
-import type { IdeaDetail } from '@/types/models';
+import { getCommentTypes, getComments, getIdea, getMyProspects, setIdeaShares, toggleIdeaVote } from '@/api';
+import { Visibility, type IdeaDetail } from '@/types/models';
 
 export default function IdeaScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,15 +45,15 @@ export default function IdeaScreen() {
           createdAt={idea.created_at}
           right={
             <Chip
-              icon={idea.visibility === 'private' ? 'lock' : 'public'}
-              label={idea.visibility === 'private' ? 'Private' : 'Public'}
+              icon={idea.visibility === Visibility.PRIVATE ? 'lock' : 'public'}
+              label={idea.visibility === Visibility.PRIVATE ? 'Private' : 'Public'}
             />
           }
         />
         <ThemedText style={styles.title}>{idea.title}</ThemedText>
         <ThemedText>{idea.description}</ThemedText>
         <View style={styles.row}>
-          <VoteButton count={idea.vote_count} active={idea.viewer_voted} onToggle={() => toggleIdeaVote(idea.id)} />
+          <VoteButton count={idea.vote_count} active={idea.viewer_voted} onToggle={() => toggleIdeaVote(idea.id, idea.viewer_voted)} />
           <Stat icon="comment" value={idea.comment_count} />
         </View>
       </View>
@@ -98,7 +98,7 @@ export default function IdeaScreen() {
         )
       )}
 
-      {idea.is_owner && idea.visibility === 'private' && <SharePanel idea={idea} />}
+      {idea.is_owner && idea.visibility === Visibility.PRIVATE && <SharePanel idea={idea} />}
 
       <Section title={`Comments · ${idea.comment_count}`}>
         {types && <CommentComposer ideaId={idea.id} parentId={null} types={types} />}

@@ -12,7 +12,7 @@ import { Stat } from './vote-button';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { FeedProject } from '@/types/models';
+import { Visibility, type FeedProject } from '@/types/models';
 import { timeUntil } from '@/utils/time';
 
 export function ProjectCard({ project }: { project: FeedProject }) {
@@ -23,7 +23,7 @@ export function ProjectCard({ project }: { project: FeedProject }) {
       <AuthorRow
         user={project.owner}
         createdAt={project.created_at}
-        right={project.visibility === 'private' && <Icon name="lock" size={14} color={theme.textSecondary} />}
+        right={project.visibility === Visibility.PRIVATE && <Icon name="lock" size={14} color={theme.textSecondary} />}
       />
       <View style={styles.body}>
         <View style={styles.titleRow}>

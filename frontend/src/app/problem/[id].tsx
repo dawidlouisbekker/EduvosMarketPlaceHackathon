@@ -10,7 +10,7 @@ import { ThemedText } from '@/components/themed-text';
 import { VoteButton } from '@/components/vote-button';
 import { Spacing } from '@/constants/theme';
 import { useQuery } from '@/hooks/use-query';
-import { getProblem, toggleProblemVote } from '@/mock/api';
+import { getProblem, toggleProblemVote } from '@/api';
 
 export default function ProblemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -37,7 +37,7 @@ export default function ProblemScreen() {
             label="Me too"
             count={problem.vote_count}
             active={problem.viewer_voted}
-            onToggle={() => toggleProblemVote(problem.id)}
+            onToggle={() => toggleProblemVote(problem.id, problem.viewer_voted)}
           />
         </View>
       </View>

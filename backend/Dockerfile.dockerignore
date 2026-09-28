@@ -1,0 +1,8 @@
+# The build context is the repository root; only send what the backend build needs.
+*
+!proto/**
+!backend/Cargo.toml
+!backend/Cargo.lock
+!backend/build.rs
+!backend/migrations/**
+!backend/src/**

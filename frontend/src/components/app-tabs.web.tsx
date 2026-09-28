@@ -4,10 +4,10 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Icon, type IconName } from './icon';
 import { ThemedText } from './themed-text';
 
+import { getUnreadCount } from '@/api';
 import { Spacing } from '@/constants/theme';
-import { useStoreVersion } from '@/hooks/use-query';
+import { useQuery } from '@/hooks/use-query';
 import { useTheme } from '@/hooks/use-theme';
-import { getUnreadCountSync } from '@/mock/api';
 
 const TABS: { name: string; href: '/problems' | '/ideas' | '/projects' | '/inbox' | '/profile'; label: string; icon: IconName }[] = [
   { name: 'problems', href: '/problems', label: 'Problems', icon: 'problem' },
@@ -21,8 +21,7 @@ const TABS: { name: string; href: '/problems' | '/ideas' | '/projects' | '/inbox
 export default function AppTabs() {
   const theme = useTheme();
   const wide = useWindowDimensions().width >= 768;
-  useStoreVersion();
-  const unread = getUnreadCountSync();
+  const unread = useQuery('unread-count', getUnreadCount).data ?? 0;
 
   return (
     <Tabs style={[styles.root, { flexDirection: wide ? 'row' : 'column-reverse', backgroundColor: theme.background }]}>

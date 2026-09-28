@@ -8,7 +8,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { getProjectFeed } from '@/mock/api';
+import { getProjectFeed } from '@/api';
 import type { ProjectSort } from '@/types/models';
 
 export default function ProjectsScreen() {

@@ -1,0 +1,97 @@
+// Sign-in with Microsoft Entra ID (Eduvos tenant only), driven by the backend.
+//
+// Web:    GET /auth/login[?prompt=none] -> Entra -> GET /auth/callback -> session cookie -> return_to
+// Native: GET /auth/login?client=app&redirect_uri=…&code_challenge=… -> Entra -> GET /auth/callback
+//         -> redirect_uri?code=<handoff> -> POST /auth/app/exchange {code, code_verifier} -> bearer token
+//
+// Web requests authenticate with the HttpOnly session cookie. Cookie-authenticated POST/PUT/PATCH/DELETE
+// requests must carry an Origin header equal to the site origin (browsers do this for same-origin fetch).
+// The native app sends `Authorization: Bearer <token>`.
+syntax = "proto3";
+
+package incubator.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service AuthService {
+  // GET /auth/login?return_to=&prompt=&client=&redirect_uri=&code_challenge=
+  // Browser navigation (the "Sign in with Microsoft" button), not a fetch. Responds with a 303 redirect to
+  // Microsoft. If the browser already has a Microsoft session the user is signed in without typing anything.
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // GET /auth/callback?code=&state=&error=
+  // Entra ID redirect URI; never called by clients. Responds with a 303 redirect:
+  //   web:    to return_to (session cookie set), return_to?auth_error=<code>, or, for a silent attempt that
+  //           found no Microsoft session, return_to?sso=unavailable
+  //   native: to redirect_uri?code=<one-time handoff code> or redirect_uri?error=<code>
+  rpc Callback(CallbackRequest) returns (CallbackResponse);
+
+  // POST /auth/app/exchange
+  // Native app: trades the one-time handoff code for a bearer token (30 days).
+  // 400 invalid_grant when the code is unknown, expired, already used, or the verifier doesn't match.
+  rpc ExchangeCode(ExchangeCodeRequest) returns (ExchangeCodeResponse);
+
+  // POST /auth/logout -> 204
+  // Deletes the current session and clears the cookie.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // GET /me
+  // The signed-in user. 401 when signed out.
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+}
+
+// Query parameters of GET /auth/login.
+message LoginRequest {
+  // Relative path to land on after sign-in (web only), e.g. "/ideas". Anything else falls back to "/".
+  optional string return_to = 1;
+  // "none" for a silent single-sign-on attempt. Otherwise Microsoft's account picker is shown.
+  optional string prompt = 2;
+  // "app" for the native app flow.
+  optional string client = 3;
+  // Required when client=app. Must be registered in APP_REDIRECT_URIS, e.g. "eduvosmarket://auth".
+  optional string redirect_uri = 4;
+  // Required when client=app: base64url(SHA-256(code_verifier)), 43 characters.
+  optional string code_challenge = 5;
+}
+
+// Redirect; no body.
+message LoginResponse {}
+
+// Query parameters of GET /auth/callback, set by Entra ID.
+message CallbackRequest {
+  optional string code = 1;
+  string state = 2;
+  optional string error = 3;
+}
+
+// Redirect; no body.
+message CallbackResponse {}
+
+message ExchangeCodeRequest {
+  // The handoff code from redirect_uri?code=.
+  string code = 1;
+  // The PKCE verifier whose challenge was sent to /auth/login.
+  string code_verifier = 2;
+}
+
+message ExchangeCodeResponse {
+  // Send as `Authorization: Bearer <token>`.
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  string id = 1;
+  // max 320
+  string email = 2;
+  // max 256
+  string display_name = 3;
+  // Holds the Entra admin app role.
+  bool is_admin = 4;
+}

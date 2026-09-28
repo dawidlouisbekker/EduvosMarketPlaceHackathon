@@ -16,8 +16,8 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
 
-/** Profile photo, or coloured initials when users.avatar_url is NULL. `null` user = deleted account. */
-export function Avatar({ user, size = 36 }: { user: Pick<UserSummary, 'id' | 'display_name' | 'avatar_url'> | null; size?: number }) {
+/** Profile photo, or coloured initials when users.avatar_url is NULL. No user = deleted account. */
+export function Avatar({ user, size = 36 }: { user?: Pick<UserSummary, 'id' | 'display_name' | 'avatar_url'> | null; size?: number }) {
   const box = { width: size, height: size, borderRadius: size / 2 };
   if (user?.avatar_url) return <Image source={user.avatar_url} style={box} contentFit="cover" />;
   return (
@@ -28,7 +28,8 @@ export function Avatar({ user, size = 36 }: { user: Pick<UserSummary, 'id' | 'di
 }
 
 /** Overlapping avatars, e.g. a project's team. */
-export function AvatarStack({ users, size = 24, max = 4 }: { users: UserSummary[]; size?: number; max?: number }) {
+export function AvatarStack({ users: all, size = 24, max = 4 }: { users: (UserSummary | undefined)[]; size?: number; max?: number }) {
+  const users = all.filter((u) => !!u);
   const shown = users.slice(0, max);
   return (
     <View style={styles.stack}>

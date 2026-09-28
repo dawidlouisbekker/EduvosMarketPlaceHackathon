@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from './themed-text';
 
+import { useSession } from '@/auth/session';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 import { useStoreVersion } from '@/hooks/use-query';
 import type { Page } from '@/types/models';
@@ -20,28 +21,40 @@ type FeedProps<T extends { id: string }> = {
   empty: string;
 };
 
-/** Infinite-scrolling list with pull-to-refresh. Refreshes in place when the store changes (votes, new posts). */
+/** Infinite-scrolling list with pull-to-refresh. Refreshes in place after mutations (votes, new posts). */
 export function Feed<T extends { id: string }>({ queryKey, load, renderItem, header, empty }: FeedProps<T>) {
   const insets = useSafeAreaInsets();
   const version = useStoreVersion();
+  const userId = useSession().user?.id;
   const [items, setItems] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'idle' | 'more' | 'refreshing'>('loading');
+  const [error, setError] = useState<string | null>(null);
 
-  // First page, and reload everything loaded so far whenever the data changes.
+  const apply = (page: Page<T>, append = false) => {
+    setItems((prev) => (append ? [...prev, ...page.items] : page.items));
+    setCursor(page.next_cursor);
+    setStatus('idle');
+    setError(null);
+  };
+  const fail = (e: unknown) => {
+    setStatus('idle');
+    setError(e instanceof Error ? e.message : String(e));
+  };
+
+  // First page, and reload everything loaded so far whenever the data changes. Nothing while signed out.
   useEffect(() => {
+    if (!userId) return;
     let alive = true;
-    load(null, Math.max(PAGE, items.length)).then((page) => {
-      if (!alive) return;
-      setItems(page.items);
-      setCursor(page.next_cursor);
-      setStatus('idle');
-    });
+    load(null, Math.max(PAGE, items.length)).then(
+      (page) => alive && apply(page),
+      (e) => alive && fail(e),
+    );
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, version]);
+  }, [queryKey, version, userId]);
 
   // Restart from the top with a spinner when the query itself changes.
   const [shownKey, setShownKey] = useState(queryKey);
@@ -54,20 +67,12 @@ export function Feed<T extends { id: string }>({ queryKey, load, renderItem, hea
   const loadMore = () => {
     if (!cursor || status !== 'idle') return;
     setStatus('more');
-    load(cursor, PAGE).then((page) => {
-      setItems((prev) => [...prev, ...page.items]);
-      setCursor(page.next_cursor);
-      setStatus('idle');
-    });
+    load(cursor, PAGE).then((page) => apply(page, true), fail);
   };
 
   const refresh = () => {
     setStatus('refreshing');
-    load(null, PAGE).then((page) => {
-      setItems(page.items);
-      setCursor(page.next_cursor);
-      setStatus('idle');
-    });
+    load(null, PAGE).then((page) => apply(page), fail);
   };
 
   return (
@@ -81,7 +86,7 @@ export function Feed<T extends { id: string }>({ queryKey, load, renderItem, hea
           <ActivityIndicator style={styles.spinner} />
         ) : (
           <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-            {empty}
+            {error ? `Couldn't load: ${error}` : empty}
           </ThemedText>
         )
       }

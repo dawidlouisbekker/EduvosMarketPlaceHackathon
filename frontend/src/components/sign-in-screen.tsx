@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from './icon';
@@ -11,7 +11,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Shown instead of the app while signed out. */
-export function SignInScreen({ onDemo }: { onDemo: () => void }) {
+export function SignInScreen() {
   const theme = useTheme();
   const { loading, error, signIn } = useSession();
 
@@ -44,9 +44,6 @@ export function SignInScreen({ onDemo }: { onDemo: () => void }) {
                 you won&apos;t need to enter your password again.
               </ThemedText>
               <MicrosoftSignInButton onPress={signIn} />
-              <Pressable onPress={onDemo} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-                <ThemedText type="linkPrimary">Explore with demo data</ThemedText>
-              </Pressable>
             </>
           )}
           {error && (

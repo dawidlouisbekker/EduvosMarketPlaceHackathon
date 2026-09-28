@@ -9,8 +9,8 @@ import { ScrollScreen } from '@/components/scroll-screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { createIdea, getProblem, searchProblems } from '@/mock/api';
-import type { Visibility } from '@/types/models';
+import { createIdea, getProblem, searchProblems } from '@/api';
+import { Visibility } from '@/types/models';
 
 type Link = { problem_id: string; title: string; description: string };
 
@@ -19,7 +19,7 @@ export default function ComposeIdea() {
   const theme = useTheme();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState<Visibility>('public');
+  const [visibility, setVisibility] = useState<Visibility>(Visibility.PUBLIC);
   const [links, setLinks] = useState<Link[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ id: string; title: string }[]>([]);

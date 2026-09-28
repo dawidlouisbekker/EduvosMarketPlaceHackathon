@@ -1,0 +1,20 @@
+# TypeScript for the API contracts in ../proto (docs/adr/0001-protobuf-api-contracts.md). Run `pnpm gen`.
+# ts-proto keeps the proto field names (snake_case, same as the backend and database) and turns
+# google.protobuf.Timestamp into ISO 8601 strings.
+version: v2
+inputs:
+  - directory: ../proto
+clean: true
+plugins:
+  - local: protoc-gen-ts_proto
+    out: src/gen
+    opt:
+      - snakeToCamel=false
+      - useDate=string
+      - forceLong=number
+      - removeEnumPrefix=true
+      - unrecognizedEnum=false
+      - outputServices=false
+      - outputJsonMethods=false
+      - useExactTypes=false
+      - esModuleInterop=true
